@@ -120,8 +120,6 @@ variables:
   outside_temp_sensor: !input outside_temperature
   outside_diff_required: !input outside_diff
 
-  snapshot_scene_id: "heating_snapshot_trvzb"
-
 trigger:
   - platform: time_pattern
     minutes: "/5"
@@ -172,9 +170,10 @@ action:
         {% endif %}
 
       snapshot_exists: >
-        {{ states('scene.' ~ snapshot_scene_id) not in ['unknown', 'unavailable'] }}
+        {{ states('scene.heating_snapshot_trvzb') not in ['unknown', 'unavailable'] }}
 
   - choose:
+      # 1) Fenster geöffnet -> Snapshot (nur bei aktivem Heizmodus) und Heizung aus
       - conditions:
           - condition: trigger
             id: window_open
@@ -187,7 +186,7 @@ action:
                 sequence:
                   - service: scene.create
                     
-                      scene_id: "{{ snapshot_scene_id }}"
+                      scene_id: "heating_snapshot_trvzb"
                       snapshot_entities:
                         - "{{ heater }}"
           - service: climate.set_hvac_mode
@@ -196,6 +195,7 @@ action:
             
               hvac_mode: "off"
 
+      # 2) Fenster geschlossen / Zeitpattern / Override-/Außentemp-/Schedule-Änderung
       - conditions:
           - condition: template
             value_template: >
@@ -208,11 +208,13 @@ action:
                  or trigger.platform == 'time_pattern' }}
         sequence:
           - choose:
+              # 2a) Override aktiv -> nichts automatisch ändern
               - conditions:
                   - condition: template
                     value_template: "{{ override_active }}"
                 sequence: []
 
+              # 2b) Fenster offen oder Außentemp nicht OK -> Heizung aus
               - conditions:
                   - condition: template
                     value_template: >
@@ -224,6 +226,7 @@ action:
                     
                       hvac_mode: "off"
 
+              # 2c) Fenster zu, Schedule aktiv, Außentemperatur OK -> Komfort (Snapshot oder Fallback)
               - conditions:
                   - condition: template
                     value_template: >
@@ -232,14 +235,16 @@ action:
                          and outside_ok }}
                 sequence:
                   - choose:
+                      # Snapshot vorhanden -> Szene wiederherstellen
                       - conditions:
                           - condition: template
                             value_template: "{{ snapshot_exists }}"
                         sequence:
                           - service: scene.turn_on
                             target:
-                              entity_id: "scene.{{ snapshot_scene_id }}"
+                              entity_id: "scene.heating_snapshot_trvzb"
 
+                      # Kein Snapshot -> Fallback: Heizen auf Komfort-Zieltemperatur
                       - conditions:
                           - condition: template
                             value_template: "{{ not snapshot_exists }}"
@@ -258,6 +263,7 @@ action:
                             
                               temperature: "{{ target_temperature }}"
 
+              # 2d) Fenster zu, Schedule AUS, Außentemperatur OK -> Eco-Absenktemperatur
               - conditions:
                   - condition: template
                     value_template: >
