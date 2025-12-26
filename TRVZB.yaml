@@ -185,10 +185,10 @@ action:
             id: window_open
         sequence:
           - service: climate.set_hvac_mode
-            target:
-              entity_id: !input thermostat_entity
-            
-              hvac_mode: "off"
+  target:
+    entity_id: !input thermostat_entity
+  
+    hvac_mode: "off"
 
       # 2) Fenster geschlossen / Zeitpattern / Override-/Außentemp-/Schedule-Änderung
       - conditions:
