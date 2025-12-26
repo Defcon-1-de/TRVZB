@@ -55,7 +55,7 @@ blueprint:
 
     window_entity:
       name: Fensterkontakt oder Fenster-Gruppe
-      description: Ein einzelner Fensterkontakt oder eine Gruppe von Kontakten
+      description: Ein einzelner Fensterkontakt oder eine Gruppe von Kontakten.
       selector:
         entity:
           domain: binary_sensor
@@ -84,7 +84,8 @@ blueprint:
 
     outside_temperature:
       name: Außentemperatur-Sensor
-      description: Beliebiger Temperatur-Sensor für draußen (optional, kann leer bleiben).
+      description: Beliebiger Temperatur-Sensor für draußen (optional).
+      default: ""
       selector:
         entity:
           domain: sensor
@@ -164,19 +165,21 @@ action:
         {% if diff_req == 0 %}
           true
         {% else %}
-          {% set out_temp = states(outside_temp_sensor) | float(nan) %}
-          {% set in_temp = state_attr(heater, 'current_temperature') | float(nan) %}
-          {% if out_temp is not number or in_temp is not number %}
+          {% if not outside_temp_sensor %}
             true
           {% else %}
-            {{ (in_temp - out_temp) >= diff_req }}
+            {% set out_temp = states(outside_temp_sensor) | float(nan) %}
+            {% set in_temp = state_attr(heater, 'current_temperature') | float(nan) %}
+            {% if out_temp is not number or in_temp is not number %}
+              true
+            {% else %}
+              {{ (in_temp - out_temp) >= diff_req }}
+            {% endif %}
           {% endif %}
         {% endif %}
 
   - choose:
-      # ----------------------------------------------------------------
       # 1) Fenster geöffnet -> Heizung aus
-      # ----------------------------------------------------------------
       - conditions:
           - condition: trigger
             id: window_open
@@ -187,9 +190,7 @@ action:
             
               hvac_mode: "off"
 
-      # ----------------------------------------------------------------
       # 2) Fenster geschlossen / Zeitpattern / Override-/Außentemp-/Schedule-Änderung
-      # ----------------------------------------------------------------
       - conditions:
           - condition: template
             value_template: >
@@ -265,4 +266,3 @@ action:
                       temperature: "{{ eco_temperature }}"
 
 mode: restart
-
