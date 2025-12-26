@@ -179,7 +179,6 @@ action:
         {% endif %}
 
   - choose:
-      # 1) Fenster geöffnet -> Heizung aus
       - conditions:
           - condition: trigger
             id: window_open
@@ -190,7 +189,6 @@ action:
             
               hvac_mode: "off"
 
-      # 2) Fenster geschlossen / Zeitpattern / Override-/Außentemp-/Schedule-Änderung
       - conditions:
           - condition: template
             value_template: >
@@ -203,13 +201,11 @@ action:
                  or trigger.platform == 'time_pattern' }}
         sequence:
           - choose:
-              # 2a) Override aktiv -> nichts automatisch ändern
               - conditions:
                   - condition: template
                     value_template: "{{ override_active }}"
                 sequence: []
 
-              # 2b) Fenster offen oder Außentemp nicht OK -> Heizung aus
               - conditions:
                   - condition: template
                     value_template: >
@@ -221,7 +217,6 @@ action:
                     
                       hvac_mode: "off"
 
-              # 2c) Fenster zu, Schedule aktiv, Außentemperatur OK -> Komfort-Temperatur
               - conditions:
                   - condition: template
                     value_template: >
@@ -243,7 +238,6 @@ action:
                     
                       temperature: "{{ target_temperature }}"
 
-              # 2d) Fenster zu, Schedule AUS, Außentemperatur OK -> Eco-Absenktemperatur
               - conditions:
                   - condition: template
                     value_template: >
@@ -264,6 +258,4 @@ action:
                       entity_id: !input thermostat_entity
                     
                       temperature: "{{ eco_temperature }}"
-
 mode: restart
-
