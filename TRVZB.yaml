@@ -1,5 +1,5 @@
 blueprint:
-  name: Heizungssteuerung mit TRVZB
+  name: Heizungssteuerung mit TRVZB (mit Snapshot)
   description: >
     Steuert ein Thermostat anhand eines Wochen-Schedules, einem Fensterkontakt/-gruppe,
     optionalem manuellen Override, einem Außentemperatur-Differenzwert und einer Eco-Absenktemperatur.
@@ -186,7 +186,7 @@ action:
                 sequence:
                   - service: scene.create
                     
-                      scene_id: "heating_snapshot_trvzb"
+                      scene_id: heating_snapshot_trvzb
                       snapshot_entities:
                         - "{{ heater }}"
           - service: climate.set_hvac_mode
@@ -242,7 +242,7 @@ action:
                         sequence:
                           - service: scene.turn_on
                             target:
-                              entity_id: "scene.heating_snapshot_trvzb"
+                              entity_id: scene.heating_snapshot_trvzb
 
                       # Kein Snapshot -> Fallback: Heizen auf Komfort-Zieltemperatur
                       - conditions:
