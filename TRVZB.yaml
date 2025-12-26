@@ -1,268 +1,154 @@
 blueprint:
-  name: Heizungssteuerung mit TRVZB v0.3-UNIQUE-XYZ123
+  name: TRVZB Fenster- und Zeitsteuerung
   description: >
-    TEST-BUILD MIT MARKER XYZ-123-ONLY-IN-NEW-VERSION.
-    Steuert ein Thermostat anhand eines Wochen-Schedules, einem Fensterkontakt/-gruppe,
-    optionalem manuellen Override, einem Außentemperatur-Differenzwert und einer Eco-Absenktemperatur.
-    Beim Öffnen eines Fensters wird die Heizung ausgeschaltet.
-    Nach dem Schließen wird je nach Zeitplan auf Komfort- bzw. Eco-Temperatur gestellt.
-    Weitere Informationen: https://www.defcon-1.de
+    Steuert SONOFF TRVZB ausschließlich per Home Assistant.
+    Hersteller-Automatik wird ignoriert. Fenster offen = Heizung wirklich aus.
   domain: automation
-  author: "Defcon-1.de / Patrick Kohnke"
-  source_url: "https://github.com/Defcon-1-de/TRVZB/raw/main/TRVZB.yaml"
 
   input:
-    thermostat_entity:
-      name: Heizungsgerät
-      description: Das zu steuernde Thermostat (z.B. Sonoff TRVZB über Zigbee2MQTT)
+    trv:
+      name: TRVZB Thermostat
       selector:
-        entity:
-          domain: climate
+        target:
+          entity:
+            integration: mqtt
+            domain: climate
 
-    target_temp:
-      name: Komfort-Temperatur bei aktivem Zeitplan
-      description: Komfort-Solltemperatur, wenn der Wochen-Schedule aktiv ist.
-      default: 22
-      selector:
-        number:
-          min: 16
-          max: 26
-          step: 0.5
-          unit_of_measurement: "°C"
-          mode: slider
-
-    eco_temp:
-      name: Eco-/Absenktemperatur außerhalb des Zeitplans
-      description: >
-        Temperatur, die gehalten werden soll, wenn der Wochen-Schedule aus ist,
-        das Fenster geschlossen ist und der Außentemperatur-Check OK ist.
-      default: 18
-      selector:
-        number:
-          min: 5
-          max: 26
-          step: 0.5
-          unit_of_measurement: "°C"
-          mode: slider
-
-    week_schedule:
-      name: Wochen-Schedule
-      description: >
-        Ein einziger Schedule-Helper, in dem die Zeiten für alle Tage der Woche gepflegt werden.
-        Der Schedule muss den Zustand "on" haben, wenn Komfort-Heizen erlaubt sein soll.
+    schedule_entity:
+      name: Heiz-Zeitplan
+      description: schedule.* Helper, wann geheizt werden soll
       selector:
         entity:
           domain: schedule
 
-    window_entity:
-      name: Fensterkontakt oder Fenster-Gruppe
-      description: Ein einzelner Fensterkontakt oder eine Gruppe von Kontakten.
+    window_sensor:
+      name: Fenstersensor(e)
+      description: Binary-Sensor oder Gruppe für Fensterstatus
       selector:
         entity:
-          domain: binary_sensor
-          device_class: window
+          domain:
+            - binary_sensor
+            - group
 
-    reopen_delay:
-      name: Verzögerung nach Fenster-Schließen
-      description: Wartezeit nach geschlossenem Fenster, bevor wieder geheizt wird.
-      default: 30
+    comfort_temp:
+      name: Komfort-Temperatur (°C)
+      default: 21.0
       selector:
         number:
-          min: 0
-          max: 300
-          step: 5
-          unit_of_measurement: "Sekunden"
-          mode: slider
-
-    manual_override:
-      name: Manueller Override (Automatik pausieren)
-      description: >
-        Input-Boolean, der die Automatik deaktiviert, wenn er auf EIN steht.
-        Z.B. "Heizung Schlafzimmer Override".
-      selector:
-        entity:
-          domain: input_boolean
-
-    outside_temperature:
-      name: Außentemperatur-Sensor
-      description: Beliebiger Temperatur-Sensor für draußen (optional).
-      default: ""
-      selector:
-        entity:
-          domain: sensor
-          device_class: temperature
-
-    outside_diff:
-      name: Minimale Temperaturdifferenz außen/innen
-      description: >
-        Heizen nur, wenn (Innen - Außen) mindestens diesen Wert erreicht.
-        0 = deaktiviert (Außentemperatur wird ignoriert).
-      default: 0
-      selector:
-        number:
-          min: 0
+          min: 5
           max: 30
           step: 0.5
           unit_of_measurement: "°C"
-          mode: slider
 
-# ----------------------------------------------------------------------
-# Interne Variablen – TESTMARKER-ABC-999
-# ----------------------------------------------------------------------
+    window_off_temp:
+      name: Temperatur bei Fenster offen (°C)
+      description: Wird beim offenen Fenster gesetzt (z.B. 5–8 °C)
+      default: 5.0
+      selector:
+        number:
+          min: 5
+          max: 15
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    window_open_delay:
+      name: Verzögerung nach Fenster-Öffnen
+      default: "00:02:00"
+      selector:
+        duration: {}
+
+    window_close_delay:
+      name: Verzögerung nach Fenster-Schließen
+      default: "00:01:00"
+      selector:
+        duration: {}
+
+triggers:
+  # Fenster-Status
+  - trigger: state
+    entity_id: !input window_sensor
+
+  # Zeitplan-Änderung
+  - trigger: state
+    entity_id: !input schedule_entity
+
+  # Sicherheits-Fallback: regelmäßig nachziehen
+  - trigger: time_pattern
+    minutes: "/10"
+
 variables:
-  heater: !input thermostat_entity
-  window_sensor: !input window_entity
-  target_temperature: !input target_temp
-  eco_temperature: !input eco_temp
+  trv: !input trv
+  schedule_entity: !input schedule_entity
+  window_sensor: !input window_sensor
+  comfort_temp: !input comfort_temp
+  window_off_temp: !input window_off_temp
+  window_open_delay: !input window_open_delay
+  window_close_delay: !input window_close_delay
 
-  week_schedule_entity: !input week_schedule
+conditions: []
 
-  override_entity: !input manual_override
-  outside_temp_sensor: !input outside_temperature
-  outside_diff_required: !input outside_diff
-
-# ----------------------------------------------------------------------
-# Trigger – TESTMARKER-TRIGGER-777
-# ----------------------------------------------------------------------
-trigger:
-  - platform: time_pattern
-    minutes: "/5"
-
-  - platform: state
-    entity_id: !input window_entity
-    to: "on"
-    id: window_open
-
-  - platform: state
-    entity_id: !input window_entity
-    to: "off"
-    for:
-      seconds: !input reopen_delay
-    id: window_closed
-
-  - platform: state
-    entity_id: !input manual_override
-    id: override_changed
-
-  - platform: state
-    entity_id: !input outside_temperature
-    id: outside_temp_changed
-
-  - platform: state
-    entity_id: !input week_schedule
-    id: schedule_changed
-
-condition: []
-
-# ----------------------------------------------------------------------
-# Aktionen – TESTMARKER-ACTIONS-XYZ-2025
-# ----------------------------------------------------------------------
-action:
-  - variables:
-      in_schedule: "{{ is_state(week_schedule_entity, 'on') }}"
-      override_active: "{{ is_state(override_entity, 'on') }}"
-      outside_ok: >
-        {% set diff_req = outside_diff_required | float(0) %}
-        {% if diff_req == 0 %}
-          true
-        {% else %}
-          {% if not outside_temp_sensor %}
-            true
-          {% else %}
-            {% set out_temp = states(outside_temp_sensor) | float(nan) %}
-            {% set in_temp = state_attr(heater, 'current_temperature') | float(nan) %}
-            {% if out_temp is not number or in_temp is not number %}
-              true
-            {% else %}
-              {{ (in_temp - out_temp) >= diff_req }}
-            {% endif %}
-          {% endif %}
-        {% endif %}
-
+actions:
   - choose:
-      # 1) Fenster geöffnet -> Heizung aus – TESTMARKER-SEQUENCE-OPEN-WINDOW-XYZ-2025
+      # 1) Fenster offen -> TRVZB hart "aus" / Minimaltemp, solange offen
       - conditions:
-          - condition: trigger
-            id: window_open
+          - condition: state
+            entity_id: !input window_sensor
+            state: "on"
         sequence:
-          - service: climate.set_hvac_mode
-            target:
-              entity_id: !input thermostat_entity
-            
-              hvac_mode: "off"
+          - delay: !input window_open_delay
+          - condition: state
+            entity_id: !input window_sensor
+            state: "on"
+          # Hersteller-Automatik umgehen: manuell auf Minimalwert setzen
+          - action: climate.set_hvac_mode
+            target: !input trv
+            data:
+              hvac_mode: "heat"
+          - action: climate.set_temperature
+            target: !input trv
+            data:
+              temperature: !input window_off_temp
 
-      # 2) Fenster geschlossen / Zeitpattern / Override-/Außentemp-/Schedule-Änderung
+      # 2) Fenster zu -> Steuerung ausschließlich per HA-Zeitplan
       - conditions:
-          - condition: template
-            value_template: >
-              {{ trigger.id in [
-                    'window_closed',
-                    'override_changed',
-                    'outside_temp_changed',
-                    'schedule_changed'
-                 ]
-                 or trigger.platform == 'time_pattern' }}
+          - condition: state
+            entity_id: !input window_sensor
+            state: "off"
         sequence:
+          - delay: !input window_close_delay
+          - condition: state
+            entity_id: !input window_sensor
+            state: "off"
           - choose:
-              # 2a) Override aktiv -> nichts automatisch ändern
+              # a) Zeitplan EIN -> Komfort
               - conditions:
-                  - condition: template
-                    value_template: "{{ override_active }}"
-                sequence: []
-
-              # 2b) Fenster offen oder Außentemp nicht OK -> Heizung aus – TESTMARKER-FENSTER-OFFEN-123
-              - conditions:
-                  - condition: template
-                    value_template: >
-                      {{ is_state(window_sensor, 'on') or not outside_ok }}
+                  - condition: state
+                    entity_id: !input schedule_entity
+                    state: "on"
                 sequence:
-                  - service: climate.set_hvac_mode
-                    target:
-                      entity_id: !input thermostat_entity
-                    
-                      hvac_mode: "off"
-
-              # 2c) Fenster zu, Schedule aktiv, Außentemperatur OK -> Komfort-Temperatur
-              - conditions:
-                  - condition: template
-                    value_template: >
-                      {{ not is_state(window_sensor, 'on')
-                         and in_schedule
-                         and outside_ok }}
-                sequence:
-                  - condition: template
-                    value_template: >
-                      {{ state_attr(heater, 'hvac_mode') != 'heat' }}
-                  - service: climate.set_hvac_mode
-                    target:
-                      entity_id: !input thermostat_entity
-                    
+                  - action: climate.set_hvac_mode
+                    target: !input trv
+                    data:
                       hvac_mode: "heat"
-                  - service: climate.set_temperature
-                    target:
-                      entity_id: !input thermostat_entity
-                    
-                      temperature: "{{ target_temperature }}"
+                  - action: climate.set_temperature
+                    target: !input trv
+                    data:
+                      temperature: !input comfort_temp
 
-              # 2d) Fenster zu, Schedule AUS, Außentemperatur OK -> Eco-Absenktemperatur
+              # b) Zeitplan AUS -> TRVZB aus/minimal
               - conditions:
-                  - condition: template
-                    value_template: >
-                      {{ not in_schedule
-                         and not is_state(window_sensor, 'on')
-                         and outside_ok }}
+                  - condition: state
+                    entity_id: !input schedule_entity
+                    state: "off"
                 sequence:
-                  - condition: template
-                    value_template: >
-                      {{ state_attr(heater, 'hvac_mode') != 'heat' }}
-                  - service: climate.set_hvac_mode
-                    target:
-                      entity_id: !input thermostat_entity
-                    
+                  - action: climate.set_hvac_mode
+                    target: !input trv
+                    data:
                       hvac_mode: "heat"
-                  - service: climate.set_temperature
-                    target:
-                      entity_id: !input thermostat_entity
-                    
-                      temperature: "{{ eco_temperature }}"
+                  - action: climate.set_temperature
+                    target: !input trv
+                    data:
+                      temperature: !input window_off_temp
+            default: []
+
 mode: restart
