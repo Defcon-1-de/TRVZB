@@ -1,0 +1,165 @@
+blueprint:
+  name: Heizungssteuerung mit Wochen-Schedule, Fenster, Override, Außentemperatur und Snapshot
+  description: >
+    Steuert ein Thermostat anhand eines Wochen-Schedules, einem Fensterkontakt/-gruppe,
+    optionalem manuellen Override und einem Außentemperatur-Differenzwert.
+    Beim Öffnen eines Fensters wird der aktuelle Heiz-Zustand des Thermostats als Szene gespeichert
+    und die Heizung ausgeschaltet. Nach dem Schließen wird der gespeicherte Zustand wiederhergestellt
+    oder optional auf eine Zieltemperatur gestellt.
+  domain: automation
+  author: "Defcon-1.de / Patrick Kohnke"
+
+  input:
+    thermostat_entity:
+      name: Heizungsgerät
+      description: Das zu steuernde Thermostat (z.B. Sonoff TRVZB über Zigbee2MQTT)
+      selector:
+        entity:
+          domain: climate
+
+    target_temp:
+      name: Zieltemperatur bei aktivem Zeitplan (Fallback)
+      description: >
+        Temperatur, auf die gestellt wird, wenn beim Wiederanheizen kein gültiger Snapshot
+        vorhanden ist (z.B. nach Neustart).
+      default: 22
+      selector:
+        number:
+          min: 16
+          max: 26
+          step: 0.5
+          unit_of_measurement: "°C"
+          mode: slider
+
+    week_schedule:
+      name: Wochen-Schedule
+      description: >
+        Ein einziger Schedule-Helper, in dem die Zeiten für alle Tage der Woche gepflegt werden.
+        Der Schedule muss den Zustand "on" haben, wenn geheizt werden soll.
+      selector:
+        entity:
+          domain: schedule
+
+    window_entity:
+      name: Fensterkontakt oder Fenster-Gruppe
+      description: Ein einzelner Fensterkontakt oder eine Gruppe von Kontakten
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: window
+
+    reopen_delay:
+      name: Verzögerung nach Fenster-Schließen
+      description: Wartezeit nach geschlossenem Fenster, bevor wieder geheizt und ggf. Snapshot wiederhergestellt wird
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 5
+          unit_of_measurement: "Sekunden"
+          mode: slider
+
+    manual_override:
+      name: Manueller Override (Automatik pausieren)
+      description: >
+        Input-Boolean, der die Automatik deaktiviert, wenn er auf EIN steht.
+        Z.B. "Heizung Schlafzimmer Override".
+      selector:
+        entity:
+          domain: input_boolean
+
+    outside_temperature:
+      name: Außentemperatur-Sensor
+      description: Beliebiger Temperatur-Sensor für draußen (optional, kann leer bleiben)
+      default:
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    outside_diff:
+      name: Minimale Temperaturdifferenz außen/innen
+      description: >
+        Heizen nur, wenn (Innen - Außen) mindestens diesen Wert erreicht.
+        0 = deaktiviert (Außentemperatur wird ignoriert).
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+          mode: slider
+
+variables:
+  heater: !input thermostat_entity
+  window_sensor: !input window_entity
+  target_temperature: !input target_temp
+
+  week_schedule_entity: !input week_schedule
+
+  override_entity: !input manual_override
+  outside_temp_sensor: !input outside_temperature
+  outside_diff_required: !input outside_diff
+
+  snapshot_scene_id: >
+    {{ ('heating_snapshot_' ~ heater) | replace('.', '_') }}
+
+trigger:
+  # Zyklische Prüfung (Schedule / Außentemperatur)
+  - platform: time_pattern
+    minutes: "/5"
+
+  # Fenster geöffnet
+  - platform: state
+    entity_id: !input window_entity
+    to: "on"
+    id: window_open
+
+  # Fenster geschlossen mit Verzögerung
+  - platform: state
+    entity_id: !input window_entity
+    to: "off"
+    for:
+      seconds: !input reopen_delay
+    id: window_closed
+
+  # Manueller Override geändert
+  - platform: state
+    entity_id: !input manual_override
+    id: override_changed
+
+  # Außentemperatur geändert
+  - platform: state
+    entity_id: !input outside_temperature
+    id: outside_temp_changed
+
+  # Schedule-Zustand geändert (sofort reagieren)
+  - platform: state
+    entity_id: !input week_schedule
+    id: schedule_changed
+
+condition: []
+
+action:
+  - variables:
+      in_schedule: "{{ is_state(week_schedule_entity, 'on') }}"
+      override_active: "{{ is_state(override_entity, 'on') }}"
+
+      outside_ok: >
+        {% set diff_req = outside_diff_required | float(0) %}
+        {% if diff_req == 0 %}
+          true
+        {% else %}
+          {% set out_temp = states(outside_temp_sensor) | float(nan) %}
+          {% set in_temp = state_attr(heater, 'current_temperature') | float(nan) %}
+          {% if out_temp is not number or in_temp is not number %}
+            true
+          {% else %}
+            {{ (in_temp - out_temp) >= diff_req }}
+          {% endif %}
+        {% endif %}
+
+      snapshot_exists: >
+        {{ states('scene.' ~ snapshot_scene_id) not
