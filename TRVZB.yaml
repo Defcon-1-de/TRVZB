@@ -1,53 +1,101 @@
 blueprint:
-  name: TRVZB Fenster- und Zeitsteuerung
+  name: TRVZB Heizungssteuerung mit Hysterese, Fensterüberwacxhung & Override
   description: >
-    Steuert SONOFF TRVZB ausschließlich per Home Assistant.
-    Hersteller-Automatik wird ignoriert. Fenster offen = Heizung wirklich aus.
+    Heizungssteuerung für Thermostate (z.B. Sonoff TRVZB) mit Hysterese.
+    Unterstützt optional einen externen Temperatursensor, Zeitplan,
+    Override und Fensterabschaltung bis 0 °C.
   domain: automation
 
   input:
-    trv:
-      name: TRVZB Thermostat
+    thermostat:
+      name: Thermostat / Climate-Entity
       selector:
         target:
           entity:
-            integration: mqtt
             domain: climate
 
-    schedule_entity:
-      name: Heiz-Zeitplan
-      description: schedule.* Helper, wann geheizt werden soll
+    temperature_sensor:
+      name: Externer Temperatursensor (optional)
+      description: Wenn leer, wird die interne Temperatur des Thermostats genutzt.
+      default: []
       selector:
         entity:
-          domain: schedule
+          domain: sensor
 
     window_sensor:
-      name: Fenstersensor(e)
-      description: Binary-Sensor oder Gruppe für Fensterstatus
+      name: Fenstersensor (optional)
+      description: Fenster offen = Heizung auf Abschalttemperatur.
+      default: []
       selector:
         entity:
           domain:
             - binary_sensor
             - group
 
+    schedule_entity:
+      name: Zeitplan (optional)
+      description: schedule-Helper, der Heizphasen steuert.
+      default: []
+      selector:
+        entity:
+          domain: schedule
+
+    override_entity:
+      name: Override (optional)
+      description: z.B. input_boolean oder Switch für manuelle Regelung.
+      default: []
+      selector:
+        entity:
+          domain:
+            - input_boolean
+            - switch
+
+    last_setpoint_store:
+      name: Speicher für letztes Komfort-Setpoint (optional)
+      description: input_number, in dem das letzte Komfort-Setpoint persistiert wird.
+      default: []
+      selector:
+        entity:
+          domain: input_number
+
+    temp_low:
+      name: Einschalt-Schwelle (°C)
+      default: 20.0
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    temp_high:
+      name: Ausschalt-Schwelle (°C)
+      default: 22.0
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+
     comfort_temp:
       name: Komfort-Temperatur (°C)
       default: 21.0
       selector:
         number:
-          min: 5
+          min: 0
           max: 30
           step: 0.5
           unit_of_measurement: "°C"
 
     window_off_temp:
       name: Temperatur bei Fenster offen (°C)
-      description: Wird beim offenen Fenster gesetzt (z.B. 5–8 °C)
-      default: 5.0
+      description: Darf 0 sein, wenn das Thermostat es unterstützt.
+      default: 0.0
       selector:
         number:
-          min: 5
-          max: 15
+          min: 0
+          max: 10
           step: 0.5
           unit_of_measurement: "°C"
 
@@ -64,91 +112,158 @@ blueprint:
         duration: {}
 
 triggers:
-  # Fenster-Status
+  - trigger: state
+    entity_id: !input temperature_sensor
+    id: temp_ext
+
+  - trigger: state
+    entity_id: !input thermostat
+    id: temp_int
+
   - trigger: state
     entity_id: !input window_sensor
+    id: window
 
-  # Zeitplan-Änderung
   - trigger: state
     entity_id: !input schedule_entity
+    id: schedule
 
-  # Sicherheits-Fallback: regelmäßig nachziehen
+  - trigger: state
+    entity_id: !input override_entity
+    id: override
+
   - trigger: time_pattern
     minutes: "/10"
+    id: periodic
 
 variables:
-  trv: !input trv
-  schedule_entity: !input schedule_entity
+  thermostat: !input thermostat
+  temperature_sensor: !input temperature_sensor
   window_sensor: !input window_sensor
+  schedule_entity: !input schedule_entity
+  override_entity: !input override_entity
+  last_setpoint_store: !input last_setpoint_store
+
+  temp_low: !input temp_low
+  temp_high: !input temp_high
   comfort_temp: !input comfort_temp
   window_off_temp: !input window_off_temp
   window_open_delay: !input window_open_delay
   window_close_delay: !input window_close_delay
 
+  current_temp: >-
+    {% if temperature_sensor != [] %}
+      {{ states(temperature_sensor) | float(0) }}
+    {% else %}
+      {% set ent = thermostat.entity_id if thermostat is mapping else thermostat %}
+      {{ state_attr(ent, 'current_temperature') | float(0) }}
+    {% endif %}
+
+  last_comfort_temp: >-
+    {% if last_setpoint_store != [] %}
+      {{ states(last_setpoint_store) | float(comfort_temp) }}
+    {% else %}
+      {{ comfort_temp }}
+    {% endif %}
+
 conditions: []
 
 actions:
   - choose:
-      # 1) Fenster offen -> TRVZB hart "aus" / Minimaltemp, solange offen
       - conditions:
-          - condition: state
-            entity_id: !input window_sensor
-            state: "on"
+          - condition: template
+            value_template: >
+              {{ window_sensor != [] and is_state(window_sensor, 'on') }}
         sequence:
           - delay: !input window_open_delay
-          - condition: state
-            entity_id: !input window_sensor
-            state: "on"
-          # Hersteller-Automatik umgehen: manuell auf Minimalwert setzen
+          - condition: template
+            value_template: >
+              {{ window_sensor != [] and is_state(window_sensor, 'on') }}
           - action: climate.set_hvac_mode
-            target: !input trv
+            target: !input thermostat
             data:
-              hvac_mode: "heat"
+              hvac_mode: heat
           - action: climate.set_temperature
-            target: !input trv
+            target: !input thermostat
             data:
               temperature: !input window_off_temp
 
-      # 2) Fenster zu -> Steuerung ausschließlich per HA-Zeitplan
       - conditions:
-          - condition: state
-            entity_id: !input window_sensor
-            state: "off"
+          - condition: template
+            value_template: >
+              {{ override_entity != [] and is_state(override_entity, 'on') }}
+        sequence: []
+
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ override_entity == [] or is_state(override_entity, 'off') }}
         sequence:
-          - delay: !input window_close_delay
-          - condition: state
-            entity_id: !input window_sensor
-            state: "off"
           - choose:
-              # a) Zeitplan EIN -> Komfort
               - conditions:
-                  - condition: state
-                    entity_id: !input schedule_entity
-                    state: "on"
+                  - condition: template
+                    value_template: >
+                      {{ window_sensor == [] or is_state(window_sensor, 'off') }}
                 sequence:
-                  - action: climate.set_hvac_mode
-                    target: !input trv
-                    data:
-                      hvac_mode: "heat"
-                  - action: climate.set_temperature
-                    target: !input trv
-                    data:
-                      temperature: !input comfort_temp
+                  - condition: template
+                    value_template: >
+                      {{ schedule_entity == [] or is_state(schedule_entity, 'on') }}
 
-              # b) Zeitplan AUS -> TRVZB aus/minimal
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_temp < temp_low }}"
+                        sequence:
+                          - choose:
+                              - conditions:
+                                  - condition: template
+                                    value_template: "{{ last_setpoint_store != [] }}"
+                                sequence:
+                                  - action: input_number.set_value
+                                    target:
+                                      entity_id: !input last_setpoint_store
+                                    data:
+                                      value: "{{ comfort_temp }}"
+                            default: []
+                          - action: climate.set_hvac_mode
+                            target: !input thermostat
+                            data:
+                              hvac_mode: heat
+                          - action: climate.set_temperature
+                            target: !input thermostat
+                            data:
+                              temperature: !input comfort_temp
+
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_temp > temp_high }}"
+                        sequence:
+                          - action: climate.set_hvac_mode
+                            target: !input thermostat
+                            data:
+                              hvac_mode: "off"
+
               - conditions:
-                  - condition: state
-                    entity_id: !input schedule_entity
-                    state: "off"
+                  - condition: template
+                    value_template: >
+                      {{ window_sensor != [] and is_state(window_sensor, 'off') }}
                 sequence:
+                  - delay: !input window_close_delay
+                  - condition: template
+                    value_template: >
+                      {{ window_sensor == [] or is_state(window_sensor, 'off') }}
+                  - condition: template
+                    value_template: >
+                      {{ schedule_entity == [] or is_state(schedule_entity, 'on') }}
                   - action: climate.set_hvac_mode
-                    target: !input trv
+                    target: !input thermostat
                     data:
-                      hvac_mode: "heat"
+                      hvac_mode: heat
                   - action: climate.set_temperature
-                    target: !input trv
+                    target: !input thermostat
                     data:
-                      temperature: !input window_off_temp
+                      temperature: "{{ last_comfort_temp }}"
             default: []
+    default: []
 
-mode: restart
+mode: single
