@@ -1,11 +1,10 @@
 blueprint:
-  name: Heizungssteuerung mit TRVZB / Diverse
+  name: Heizungssteuerung mit TRVZB
   description: >
     Steuert ein Thermostat anhand eines Wochen-Schedules, einem Fensterkontakt/-gruppe,
     optionalem manuellen Override, einem Außentemperatur-Differenzwert und einer Eco-Absenktemperatur.
-    Beim Öffnen eines Fensters wird der aktuelle Heiz-Zustand des Thermostats als Szene gespeichert
-    und die Heizung ausgeschaltet. Nach dem Schließen wird der gespeicherte Zustand wiederhergestellt
-    oder je nach Zeitplan auf Komfort- bzw. Eco-Temperatur gestellt.
+    Beim Öffnen eines Fensters wird die Heizung ausgeschaltet.
+    Nach dem Schließen wird je nach Zeitplan auf Komfort- bzw. Eco-Temperatur gestellt.
     Weitere Informationen: https://www.defcon-1.de
   domain: automation
   author: "Defcon-1.de / Patrick Kohnke"
@@ -20,10 +19,8 @@ blueprint:
           domain: climate
 
     target_temp:
-      name: Komfort-Temperatur bei aktivem Zeitplan (Fallback)
-      description: >
-        Komfort-Solltemperatur, auf die gestellt wird, wenn beim Wiederanheizen kein gültiger Snapshot
-        vorhanden ist (z.B. nach Neustart).
+      name: Komfort-Temperatur bei aktivem Zeitplan
+      description: Komfort-Solltemperatur, wenn der Wochen-Schedule aktiv ist.
       default: 22
       selector:
         number:
@@ -66,7 +63,7 @@ blueprint:
 
     reopen_delay:
       name: Verzögerung nach Fenster-Schließen
-      description: Wartezeit nach geschlossenem Fenster, bevor wieder geheizt und ggf. Snapshot wiederhergestellt wird
+      description: Wartezeit nach geschlossenem Fenster, bevor wieder geheizt wird.
       default: 30
       selector:
         number:
@@ -87,7 +84,7 @@ blueprint:
 
     outside_temperature:
       name: Außentemperatur-Sensor
-      description: Beliebiger Temperatur-Sensor für draußen (optional, kann leer bleiben)
+      description: Beliebiger Temperatur-Sensor für draußen (optional, kann leer bleiben).
       default:
       selector:
         entity:
@@ -108,6 +105,9 @@ blueprint:
           unit_of_measurement: "°C"
           mode: slider
 
+# ----------------------------------------------------------------------
+# Interne Variablen
+# ----------------------------------------------------------------------
 variables:
   heater: !input thermostat_entity
   window_sensor: !input window_entity
@@ -120,6 +120,14 @@ variables:
   outside_temp_sensor: !input outside_temperature
   outside_diff_required: !input outside_diff
 
+# ----------------------------------------------------------------------
+# Trigger:
+#   - Zeitpattern: regelmäßige Prüfung
+#   - Fenster auf/zu
+#   - Override geändert
+#   - Außentemperatur geändert
+#   - Schedule geändert
+# ----------------------------------------------------------------------
 trigger:
   - platform: time_pattern
     minutes: "/5"
@@ -150,11 +158,23 @@ trigger:
 
 condition: []
 
+# ----------------------------------------------------------------------
+# Aktionen:
+#   1) Fenster auf  -> Heizung aus
+#   2) Sonstige Trigger -> Logik nach Schedule / Fenster / Außentemperatur / Override
+# ----------------------------------------------------------------------
 action:
   - variables:
+      # Wochenschedule aktiv?
       in_schedule: "{{ is_state(week_schedule_entity, 'on') }}"
+
+      # Manueller Override aktiv?
       override_active: "{{ is_state(override_entity, 'on') }}"
 
+      # Außentemperatur-Check:
+      #   - outside_diff = 0  -> immer OK
+      #   - Sensor/Innensensor ungültig -> OK (nicht blockierend)
+      #   - sonst: (Innen - Außen) >= outside_diff_required
       outside_ok: >
         {% set diff_req = outside_diff_required | float(0) %}
         {% if diff_req == 0 %}
@@ -169,33 +189,23 @@ action:
           {% endif %}
         {% endif %}
 
-      snapshot_exists: >
-        {{ states('scene.heating_snapshot_trvzb') not in ['unknown', 'unavailable'] }}
-
   - choose:
-      # 1) Fenster geöffnet -> Snapshot (nur bei aktivem Heizmodus) und Heizung aus
+      # ----------------------------------------------------------------
+      # 1) Fenster geöffnet -> Heizung aus
+      # ----------------------------------------------------------------
       - conditions:
           - condition: trigger
             id: window_open
         sequence:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: >
-                      {{ state_attr(heater, 'hvac_mode') in ['heat', 'auto'] }}
-                sequence:
-                  - service: scene.create
-                    
-                      scene_id: heating_snapshot_trvzb
-                      snapshot_entities:
-                        - "{{ heater }}"
           - service: climate.set_hvac_mode
             target:
               entity_id: !input thermostat_entity
             
               hvac_mode: "off"
 
+      # ----------------------------------------------------------------
       # 2) Fenster geschlossen / Zeitpattern / Override-/Außentemp-/Schedule-Änderung
+      # ----------------------------------------------------------------
       - conditions:
           - condition: template
             value_template: >
@@ -226,7 +236,7 @@ action:
                     
                       hvac_mode: "off"
 
-              # 2c) Fenster zu, Schedule aktiv, Außentemperatur OK -> Komfort (Snapshot oder Fallback)
+              # 2c) Fenster zu, Schedule aktiv, Außentemperatur OK -> Komfort-Temperatur
               - conditions:
                   - condition: template
                     value_template: >
@@ -234,34 +244,19 @@ action:
                          and in_schedule
                          and outside_ok }}
                 sequence:
-                  - choose:
-                      # Snapshot vorhanden -> Szene wiederherstellen
-                      - conditions:
-                          - condition: template
-                            value_template: "{{ snapshot_exists }}"
-                        sequence:
-                          - service: scene.turn_on
-                            target:
-                              entity_id: scene.heating_snapshot_trvzb
-
-                      # Kein Snapshot -> Fallback: Heizen auf Komfort-Zieltemperatur
-                      - conditions:
-                          - condition: template
-                            value_template: "{{ not snapshot_exists }}"
-                        sequence:
-                          - condition: template
-                            value_template: >
-                              {{ state_attr(heater, 'hvac_mode') != 'heat' }}
-                          - service: climate.set_hvac_mode
-                            target:
-                              entity_id: !input thermostat_entity
-                            
-                              hvac_mode: "heat"
-                          - service: climate.set_temperature
-                            target:
-                              entity_id: !input thermostat_entity
-                            
-                              temperature: "{{ target_temperature }}"
+                  - condition: template
+                    value_template: >
+                      {{ state_attr(heater, 'hvac_mode') != 'heat' }}
+                  - service: climate.set_hvac_mode
+                    target:
+                      entity_id: !input thermostat_entity
+                    
+                      hvac_mode: "heat"
+                  - service: climate.set_temperature
+                    target:
+                      entity_id: !input thermostat_entity
+                    
+                      temperature: "{{ target_temperature }}"
 
               # 2d) Fenster zu, Schedule AUS, Außentemperatur OK -> Eco-Absenktemperatur
               - conditions:
