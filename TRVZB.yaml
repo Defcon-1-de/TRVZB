@@ -1,9 +1,8 @@
 blueprint:
-  name: TRVZB Heizungssteuerung mit Delta-Hysterese, Fenster & Override
+  name: TRVZB Heizungssteuerung mit Delta-Hysterese, Fensterüberwachung & manuellem Override
   description: >
-    Heizungssteuerung für Thermostate (z.B. Sonoff TRVZB) mit Delta-Hysterese.
-    Unterstützt optional einen externen Temperatursensor, Zeitplan,
-    Override, Absenktemperatur und Fensterabschaltung bis 0 °C.
+    Heizkörperregelung für das Sonoff TRVZB mit Delta-Hysterese,
+    Heizzeiten, Absenkbetrieb, Fensterkontakt und optionalem Override.
     Autor: Patrick Kohnke – www.defcon-1.de
   domain: automation
   author: Patrick Kohnke
@@ -11,7 +10,7 @@ blueprint:
 
   input:
     thermostat:
-      name: Thermostat / Climate-Entity
+      name: Thermostat
       selector:
         entity:
           domain: climate
@@ -26,7 +25,7 @@ blueprint:
 
     window_sensor:
       name: Fenstersensor (optional)
-      description: Fenster offen = Heizung auf Fenster-Abschalttemperatur.
+      description: Fenster offen = Absenkung auf Fenster-Temperatur.
       default: []
       selector:
         entity:
@@ -35,8 +34,8 @@ blueprint:
             - group
 
     schedule_entity:
-      name: Zeitplan (optional)
-      description: schedule-Helper, der Heizphasen steuert.
+      name: Heiz-Zeitplan (optional)
+      description: schedule-Helper für Komfort-Zeiten.
       default: []
       selector:
         entity:
@@ -44,7 +43,7 @@ blueprint:
 
     override_entity:
       name: Override (optional)
-      description: z.B. input_boolean oder Switch für manuelle Regelung.
+      description: Schalter für manuelle Regelung.
       default: []
       selector:
         entity:
@@ -54,7 +53,7 @@ blueprint:
 
     last_setpoint_store:
       name: Speicher für letztes Komfort-Setpoint (optional)
-      description: input_number, in dem das letzte Komfort-Setpoint persistiert wird.
+      description: input_number zur Ablage des letzten Komfort-Setpoints.
       default: []
       selector:
         entity:
@@ -72,7 +71,6 @@ blueprint:
 
     setback_temp:
       name: Absenktemperatur außerhalb Heizzeiten (°C)
-      description: Temperatur, auf die außerhalb der Heizzeiten abgesenkt wird.
       default: 17.0
       selector:
         number:
@@ -83,7 +81,6 @@ blueprint:
 
     window_off_temp:
       name: Temperatur bei Fenster offen (°C)
-      description: Darf 0 sein, wenn das Thermostat es unterstützt.
       default: 0.0
       selector:
         number:
@@ -94,7 +91,7 @@ blueprint:
 
     delta_hysteresis:
       name: Delta-Hysterese (°C)
-      description: Differenz zwischen Soll- und Ist-Temperatur, ab der geheizt wird.
+      description: Komfort-Soll minus Ist, ab der geheizt wird.
       default: 3.0
       selector:
         number:
@@ -104,14 +101,14 @@ blueprint:
           unit_of_measurement: "°C"
 
     window_open_delay:
-      name: Verzögerung nach Fenster-Öffnen
-      default: "00:02:00"
+      name: Verzögerung Fenster auf
+      default: "00:0:15"
       selector:
         duration: {}
 
     window_close_delay:
-      name: Verzögerung nach Fenster-Schließen
-      default: "00:01:00"
+      name: Verzögerung Fenster zu
+      default: "00:01:15"
       selector:
         duration: {}
 
@@ -173,7 +170,7 @@ conditions: []
 
 actions:
   - choose:
-      # 1) Fenster offen -> immer Fenster-Abschalttemperatur, höchste Priorität
+      # Fenster offen
       - conditions:
           - condition: template
             value_template: >
@@ -194,34 +191,34 @@ actions:
             data:
               temperature: !input window_off_temp
 
-      # 2) Override aktiv -> keine automatische Regelung (Fensterlogik oben bleibt)
+      # Override aktiv
       - conditions:
           - condition: template
             value_template: >
               {{ override_entity != [] and is_state(override_entity, 'on') }}
         sequence: []
 
-      # 3) Normalbetrieb (kein Override, Fenster zu oder nicht vorhanden)
+      # Normalbetrieb
       - conditions:
           - condition: template
             value_template: >
               {{ override_entity == [] or is_state(override_entity, 'off') }}
         sequence:
           - choose:
-              # 3a) Fenster vorhanden, aber zu
+              # Fenster zu
               - conditions:
                   - condition: template
                     value_template: >
                       {{ window_sensor == [] or is_state(window_sensor, 'off') }}
                 sequence:
                   - choose:
-                      # Heizzeit (Schedule an oder nicht vorhanden) -> Komfort-Logik
+                      # Heizzeit (Komfort)
                       - conditions:
                           - condition: template
                             value_template: >
                               {{ schedule_entity == [] or is_state(schedule_entity, 'on') }}
                         sequence:
-                          # Heizung EIN, wenn Komfort-Soll - Ist >= Delta
+                          # Heizen, wenn Delta erreicht
                           - choose:
                               - conditions:
                                   - condition: template
@@ -250,7 +247,7 @@ actions:
                                     data:
                                       temperature: !input comfort_temp
 
-                          # Heizung AUS, wenn Ist >= Komfort-Soll
+                          # Aus, wenn Komfort erreicht
                           - choose:
                               - conditions:
                                   - condition: template
@@ -264,7 +261,7 @@ actions:
                                       hvac_mode: "off"
                             default: []
 
-                      # Absenkbetrieb (Schedule aus) -> Setback-Temperatur
+                      # Absenkbetrieb (Heizzeit aus)
                       - conditions:
                           - condition: template
                             value_template: >
@@ -282,7 +279,7 @@ actions:
                               temperature: !input setback_temp
                     default: []
 
-              # 3b) Fenster war offen, jetzt zu -> Rückkehr zu Komfort/Setback nach Delay
+              # Fenster gerade wieder zu
               - conditions:
                   - condition: template
                     value_template: >
@@ -293,7 +290,7 @@ actions:
                     value_template: >
                       {{ window_sensor == [] or is_state(window_sensor, 'off') }}
                   - choose:
-                      # Nach Fenster zu + Heizzeit -> Komfort-Temp (oder gespeichertes Setpoint)
+                      # nach Fenster zu + Heizzeit
                       - conditions:
                           - condition: template
                             value_template: >
@@ -309,7 +306,7 @@ actions:
                               entity_id: !input thermostat
                             data:
                               temperature: "{{ last_comfort_temp }}"
-                      # Nach Fenster zu + Absenkbetrieb -> Setback-Temp
+                      # nach Fenster zu + Absenkbetrieb
                       - conditions:
                           - condition: template
                             value_template: >
