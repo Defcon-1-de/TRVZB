@@ -79,3 +79,211 @@ blueprint:
       description: >
         Input-Boolean, der die Automatik deaktiviert, wenn er auf EIN steht.
         Z.B. "Heizung Schlafzimmer Override".
+      selector:
+        entity:
+          domain: input_boolean
+
+    outside_temperature:
+      name: Außentemperatur-Sensor
+      description: Beliebiger Temperatur-Sensor für draußen (optional, kann leer bleiben)
+      default:
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    outside_diff:
+      name: Minimale Temperaturdifferenz außen/innen
+      description: >
+        Heizen nur, wenn (Innen - Außen) mindestens diesen Wert erreicht.
+        0 = deaktiviert (Außentemperatur wird ignoriert).
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+          mode: slider
+
+variables:
+  heater: !input thermostat_entity
+  window_sensor: !input window_entity
+  target_temperature: !input target_temp
+  eco_temperature: !input eco_temp
+
+  week_schedule_entity: !input week_schedule
+
+  override_entity: !input manual_override
+  outside_temp_sensor: !input outside_temperature
+  outside_diff_required: !input outside_diff
+
+  snapshot_scene_id: >
+    {{ ('heating_snapshot_' ~ heater) | replace('.', '_') }}
+
+trigger:
+  - platform: time_pattern
+    minutes: "/5"
+
+  - platform: state
+    entity_id: !input window_entity
+    to: "on"
+    id: window_open
+
+  - platform: state
+    entity_id: !input window_entity
+    to: "off"
+    for:
+      seconds: !input reopen_delay
+    id: window_closed
+
+  - platform: state
+    entity_id: !input manual_override
+    id: override_changed
+
+  - platform: state
+    entity_id: !input outside_temperature
+    id: outside_temp_changed
+
+  - platform: state
+    entity_id: !input week_schedule
+    id: schedule_changed
+
+condition: []
+
+action:
+  - variables:
+      in_schedule: "{{ is_state(week_schedule_entity, 'on') }}"
+      override_active: "{{ is_state(override_entity, 'on') }}"
+
+      outside_ok: >
+        {% set diff_req = outside_diff_required | float(0) %}
+        {% if diff_req == 0 %}
+          true
+        {% else %}
+          {% set out_temp = states(outside_temp_sensor) | float(nan) %}
+          {% set in_temp = state_attr(heater, 'current_temperature') | float(nan) %}
+          {% if out_temp is not number or in_temp is not number %}
+            true
+          {% else %}
+            {{ (in_temp - out_temp) >= diff_req }}
+          {% endif %}
+        {% endif %}
+
+      snapshot_exists: >
+        {{ states('scene.' ~ snapshot_scene_id) not in ['unknown', 'unavailable'] }}
+
+  - choose:
+      # 1) Fenster geöffnet -> Snapshot (nur bei aktivem Heizmodus) und Heizung aus
+      - conditions:
+          - condition: trigger
+            id: window_open
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ state_attr(heater, 'hvac_mode') in ['heat', 'auto'] }}
+                sequence:
+                  - service: scene.create
+                    
+                      scene_id: "{{ snapshot_scene_id }}"
+                      snapshot_entities:
+                        - "{{ heater }}"
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: !input thermostat_entity
+            
+              hvac_mode: "off"
+
+      # 2) Fenster geschlossen / Zeitpattern / Override-/Außentemp-/Schedule-Änderung
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ trigger.id in [
+                    'window_closed',
+                    'override_changed',
+                    'outside_temp_changed',
+                    'schedule_changed'
+                 ]
+                 or trigger.platform == 'time_pattern' }}
+        sequence:
+          - choose:
+              # 2a) Override aktiv -> nichts automatisch ändern
+              - conditions:
+                  - condition: template
+                    value_template: "{{ override_active }}"
+                sequence: []
+
+              # 2b) Fenster offen oder Außentemp nicht OK -> Heizung aus
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ is_state(window_sensor, 'on') or not outside_ok }}
+                sequence:
+                  - service: climate.set_hvac_mode
+                    target:
+                      entity_id: !input thermostat_entity
+                    
+                      hvac_mode: "off"
+
+              # 2c) Fenster zu, Schedule aktiv, Außentemperatur OK -> Komfort (Snapshot oder Fallback)
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ not is_state(window_sensor, 'on')
+                         and in_schedule
+                         and outside_ok }}
+                sequence:
+                  - choose:
+                      # Snapshot vorhanden -> Szene wiederherstellen
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ snapshot_exists }}"
+                        sequence:
+                          - service: scene.turn_on
+                            target:
+                              entity_id: "scene.{{ snapshot_scene_id }}"
+
+                      # Kein Snapshot -> Fallback: Heizen auf Komfort-Zieltemperatur
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ not snapshot_exists }}"
+                        sequence:
+                          - condition: template
+                            value_template: >
+                              {{ state_attr(heater, 'hvac_mode') != 'heat' }}
+                          - service: climate.set_hvac_mode
+                            target:
+                              entity_id: !input thermostat_entity
+                            
+                              hvac_mode: "heat"
+                          - service: climate.set_temperature
+                            target:
+                              entity_id: !input thermostat_entity
+                            
+                              temperature: "{{ target_temperature }}"
+
+              # 2d) Fenster zu, Schedule AUS, Außentemperatur OK -> Eco-Absenktemperatur
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ not in_schedule
+                         and not is_state(window_sensor, 'on')
+                         and outside_ok }}
+                sequence:
+                  - condition: template
+                    value_template: >
+                      {{ state_attr(heater, 'hvac_mode') != 'heat' }}
+                  - service: climate.set_hvac_mode
+                    target:
+                      entity_id: !input thermostat_entity
+                    
+                      hvac_mode: "heat"
+                  - service: climate.set_temperature
+                    target:
+                      entity_id: !input thermostat_entity
+                    
+                      temperature: "{{ eco_temperature }}"
+
+mode: restart
