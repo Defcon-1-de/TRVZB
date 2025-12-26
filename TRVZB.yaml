@@ -1,5 +1,5 @@
 blueprint:
-  name: Heizungssteuerung mit TRVZB
+  name: Heizungssteuerung mit TRVZB / Diverse
   description: >
     Steuert ein Thermostat anhand eines Wochen-Schedules, einem Fensterkontakt/-gruppe,
     optionalem manuellen Override, einem Außentemperatur-Differenzwert und einer Eco-Absenktemperatur.
