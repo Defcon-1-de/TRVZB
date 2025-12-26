@@ -1,6 +1,7 @@
 blueprint:
-  name: Heizungssteuerung mit TRVZB
+  name: Heizungssteuerung mit TRVZB v0.3-UNIQUE-XYZ123
   description: >
+    TEST-BUILD MIT MARKER XYZ-123-ONLY-IN-NEW-VERSION.
     Steuert ein Thermostat anhand eines Wochen-Schedules, einem Fensterkontakt/-gruppe,
     optionalem manuellen Override, einem Außentemperatur-Differenzwert und einer Eco-Absenktemperatur.
     Beim Öffnen eines Fensters wird die Heizung ausgeschaltet.
@@ -106,7 +107,7 @@ blueprint:
           mode: slider
 
 # ----------------------------------------------------------------------
-# Interne Variablen
+# Interne Variablen – TESTMARKER-ABC-999
 # ----------------------------------------------------------------------
 variables:
   heater: !input thermostat_entity
@@ -121,7 +122,7 @@ variables:
   outside_diff_required: !input outside_diff
 
 # ----------------------------------------------------------------------
-# Trigger
+# Trigger – TESTMARKER-TRIGGER-777
 # ----------------------------------------------------------------------
 trigger:
   - platform: time_pattern
@@ -154,7 +155,7 @@ trigger:
 condition: []
 
 # ----------------------------------------------------------------------
-# Aktionen
+# Aktionen – TESTMARKER-ACTIONS-XYZ-2025
 # ----------------------------------------------------------------------
 action:
   - variables:
@@ -179,16 +180,19 @@ action:
         {% endif %}
 
   - choose:
+      # 1) Fenster geöffnet -> Heizung aus
       - conditions:
           - condition: trigger
             id: window_open
         sequence:
+          # TESTMARKER-SEQUENCE-OPEN-WINDOW-XYZ-2025
           - service: climate.set_hvac_mode
             target:
               entity_id: !input thermostat_entity
             
               hvac_mode: "off"
 
+      # 2) Fenster geschlossen / Zeitpattern / Override-/Außentemp-/Schedule-Änderung
       - conditions:
           - condition: template
             value_template: >
@@ -201,22 +205,26 @@ action:
                  or trigger.platform == 'time_pattern' }}
         sequence:
           - choose:
+              # 2a) Override aktiv -> nichts automatisch ändern
               - conditions:
                   - condition: template
                     value_template: "{{ override_active }}"
                 sequence: []
 
+              # 2b) Fenster offen oder Außentemp nicht OK -> Heizung aus
               - conditions:
                   - condition: template
                     value_template: >
                       {{ is_state(window_sensor, 'on') or not outside_ok }}
                 sequence:
+                  # TESTMARKER-SEQUENCE-FENSTER-OFFEN-123
                   - service: climate.set_hvac_mode
                     target:
                       entity_id: !input thermostat_entity
                     
                       hvac_mode: "off"
 
+              # 2c) Fenster zu, Schedule aktiv, Außentemperatur OK -> Komfort-Temperatur
               - conditions:
                   - condition: template
                     value_template: >
@@ -238,6 +246,7 @@ action:
                     
                       temperature: "{{ target_temperature }}"
 
+              # 2d) Fenster zu, Schedule AUS, Außentemperatur OK -> Eco-Absenktemperatur
               - conditions:
                   - condition: template
                     value_template: >
@@ -258,4 +267,5 @@ action:
                       entity_id: !input thermostat_entity
                     
                       temperature: "{{ eco_temperature }}"
+
 mode: restart
