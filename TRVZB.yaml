@@ -250,6 +250,7 @@ action:
                   - service: climate.set_hvac_mode
                     target:
                       entity_id: !input thermostat_entity
+                  # hvac_mode in data setzen
                     
                       hvac_mode: "heat"
                   - service: climate.set_temperature
