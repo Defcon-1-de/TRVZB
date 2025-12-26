@@ -1,10 +1,13 @@
 blueprint:
-  name: TRVZB Heizungssteuerung mit Hysterese, Fensterüberwacxhung & Override
+  name: TRVZB Heizungssteuerung mit Hysterese, Fenster & Override
   description: >
     Heizungssteuerung für Thermostate (z.B. Sonoff TRVZB) mit Hysterese.
     Unterstützt optional einen externen Temperatursensor, Zeitplan,
     Override und Fensterabschaltung bis 0 °C.
+    Autor: Patrick Kohnke – www.defcon-1.de
   domain: automation
+  author: Patrick Kohnke
+  source_url: https://raw.githubusercontent.com/Defcon-1-de/TRVZB/refs/heads/main/TRVZB.yaml
 
   input:
     thermostat:
