@@ -85,7 +85,6 @@ blueprint:
     outside_temperature:
       name: Außentemperatur-Sensor
       description: Beliebiger Temperatur-Sensor für draußen (optional, kann leer bleiben).
-      default:
       selector:
         entity:
           domain: sensor
@@ -121,12 +120,7 @@ variables:
   outside_diff_required: !input outside_diff
 
 # ----------------------------------------------------------------------
-# Trigger:
-#   - Zeitpattern: regelmäßige Prüfung
-#   - Fenster auf/zu
-#   - Override geändert
-#   - Außentemperatur geändert
-#   - Schedule geändert
+# Trigger
 # ----------------------------------------------------------------------
 trigger:
   - platform: time_pattern
@@ -159,22 +153,12 @@ trigger:
 condition: []
 
 # ----------------------------------------------------------------------
-# Aktionen:
-#   1) Fenster auf  -> Heizung aus
-#   2) Sonstige Trigger -> Logik nach Schedule / Fenster / Außentemperatur / Override
+# Aktionen
 # ----------------------------------------------------------------------
 action:
   - variables:
-      # Wochenschedule aktiv?
       in_schedule: "{{ is_state(week_schedule_entity, 'on') }}"
-
-      # Manueller Override aktiv?
       override_active: "{{ is_state(override_entity, 'on') }}"
-
-      # Außentemperatur-Check:
-      #   - outside_diff = 0  -> immer OK
-      #   - Sensor/Innensensor ungültig -> OK (nicht blockierend)
-      #   - sonst: (Innen - Außen) >= outside_diff_required
       outside_ok: >
         {% set diff_req = outside_diff_required | float(0) %}
         {% if diff_req == 0 %}
@@ -250,7 +234,6 @@ action:
                   - service: climate.set_hvac_mode
                     target:
                       entity_id: !input thermostat_entity
-                  # hvac_mode in data setzen
                     
                       hvac_mode: "heat"
                   - service: climate.set_temperature
@@ -282,3 +265,4 @@ action:
                       temperature: "{{ eco_temperature }}"
 
 mode: restart
+
