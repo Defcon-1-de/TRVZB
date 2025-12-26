@@ -1,12 +1,12 @@
 blueprint:
-  name: TRVZB Heizungssteuerung mit Hysterese, Fenster & Override
+  name: TRVZB Heizungssteuerung mit Delta-Hysterese, Fenster & Override
   description: >
-    Heizungssteuerung für Thermostate (z.B. Sonoff TRVZB) mit Hysterese.
+    Heizungssteuerung für Thermostate (z.B. Sonoff TRVZB) mit Delta-Hysterese.
     Unterstützt optional einen externen Temperatursensor, Zeitplan,
-    Override und Fensterabschaltung bis 0 °C.
+    Override, Absenktemperatur und Fensterabschaltung bis 0 °C.
     Autor: Patrick Kohnke – www.defcon-1.de
   domain: automation
-  author: Patrick Kohnke / Defcon-1.de
+  author: Patrick Kohnke
   source_url: https://raw.githubusercontent.com/Defcon-1-de/TRVZB/refs/heads/main/TRVZB.yaml
 
   input:
@@ -27,7 +27,7 @@ blueprint:
 
     window_sensor:
       name: Fenstersensor (optional)
-      description: Fenster offen = Heizung auf Abschalttemperatur.
+      description: Fenster offen = Heizung auf Fenster-Abschalttemperatur.
       default: []
       selector:
         entity:
@@ -61,29 +61,20 @@ blueprint:
         entity:
           domain: input_number
 
-    temp_low:
-      name: Einschalt-Schwelle (°C)
-      default: 20.0
-      selector:
-        number:
-          min: 0
-          max: 30
-          step: 0.5
-          unit_of_measurement: "°C"
-
-    temp_high:
-      name: Ausschalt-Schwelle (°C)
-      default: 22.0
-      selector:
-        number:
-          min: 0
-          max: 30
-          step: 0.5
-          unit_of_measurement: "°C"
-
     comfort_temp:
       name: Komfort-Temperatur (°C)
       default: 21.0
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    setback_temp:
+      name: Absenktemperatur außerhalb Heizzeiten (°C)
+      description: Temperatur, auf die außerhalb der Heizzeiten abgesenkt wird.
+      default: 17.0
       selector:
         number:
           min: 0
@@ -98,6 +89,17 @@ blueprint:
       selector:
         number:
           min: 0
+          max: 10
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    delta_hysteresis:
+      name: Delta-Hysterese (°C)
+      description: Differenz zwischen Soll- und Ist-Temperatur, ab der geheizt wird.
+      default: 3.0
+      selector:
+        number:
+          min: 0.5
           max: 10
           step: 0.5
           unit_of_measurement: "°C"
@@ -147,10 +149,10 @@ variables:
   override_entity: !input override_entity
   last_setpoint_store: !input last_setpoint_store
 
-  temp_low: !input temp_low
-  temp_high: !input temp_high
   comfort_temp: !input comfort_temp
+  setback_temp: !input setback_temp
   window_off_temp: !input window_off_temp
+  delta_hysteresis: !input delta_hysteresis
   window_open_delay: !input window_open_delay
   window_close_delay: !input window_close_delay
 
@@ -173,6 +175,7 @@ conditions: []
 
 actions:
   - choose:
+      # 1) Fenster offen -> immer Fenster-Abschalttemperatur, höchste Priorität
       - conditions:
           - condition: template
             value_template: >
@@ -191,43 +194,79 @@ actions:
             data:
               temperature: !input window_off_temp
 
+      # 2) Override aktiv -> keine automatische Regelung (Fensterlogik oben bleibt)
       - conditions:
           - condition: template
             value_template: >
               {{ override_entity != [] and is_state(override_entity, 'on') }}
         sequence: []
 
+      # 3) Normalbetrieb (kein Override, Fenster zu oder nicht vorhanden)
       - conditions:
           - condition: template
             value_template: >
               {{ override_entity == [] or is_state(override_entity, 'off') }}
         sequence:
           - choose:
+              # 3a) Fenster vorhanden, aber zu
               - conditions:
                   - condition: template
                     value_template: >
                       {{ window_sensor == [] or is_state(window_sensor, 'off') }}
                 sequence:
-                  - condition: template
-                    value_template: >
-                      {{ schedule_entity == [] or is_state(schedule_entity, 'on') }}
-
                   - choose:
+                      # Heizzeit (Schedule an oder nicht vorhanden) -> Komfort-Logik
                       - conditions:
                           - condition: template
-                            value_template: "{{ current_temp < temp_low }}"
+                            value_template: >
+                              {{ schedule_entity == [] or is_state(schedule_entity, 'on') }}
                         sequence:
+                          # Heizung EIN, wenn Komfort-Soll - Ist >= Delta
                           - choose:
                               - conditions:
                                   - condition: template
-                                    value_template: "{{ last_setpoint_store != [] }}"
+                                    value_template: >
+                                      {{ (comfort_temp - current_temp) >= delta_hysteresis }}
                                 sequence:
-                                  - action: input_number.set_value
-                                    target:
-                                      entity_id: !input last_setpoint_store
+                                  - choose:
+                                      - conditions:
+                                          - condition: template
+                                            value_template: "{{ last_setpoint_store != [] }}"
+                                        sequence:
+                                          - action: input_number.set_value
+                                            target:
+                                              entity_id: !input last_setpoint_store
+                                            data:
+                                              value: "{{ comfort_temp }}"
+                                    default: []
+                                  - action: climate.set_hvac_mode
+                                    target: !input thermostat
                                     data:
-                                      value: "{{ comfort_temp }}"
+                                      hvac_mode: heat
+                                  - action: climate.set_temperature
+                                    target: !input thermostat
+                                    data:
+                                      temperature: !input comfort_temp
+
+                          # Heizung AUS, wenn Ist >= Komfort-Soll
+                          - choose:
+                              - conditions:
+                                  - condition: template
+                                    value_template: >
+                                      {{ current_temp >= comfort_temp }}
+                                sequence:
+                                  - action: climate.set_hvac_mode
+                                    target: !input thermostat
+                                    data:
+                                      hvac_mode: "off"
                             default: []
+
+                      # Absenkbetrieb (Schedule aus) -> Setback-Temperatur
+                      - conditions:
+                          - condition: template
+                            value_template: >
+                              {{ schedule_entity != [] and is_state(schedule_entity, 'off') }}
+                        sequence:
                           - action: climate.set_hvac_mode
                             target: !input thermostat
                             data:
@@ -235,17 +274,10 @@ actions:
                           - action: climate.set_temperature
                             target: !input thermostat
                             data:
-                              temperature: !input comfort_temp
+                              temperature: !input setback_temp
+                    default: []
 
-                      - conditions:
-                          - condition: template
-                            value_template: "{{ current_temp > temp_high }}"
-                        sequence:
-                          - action: climate.set_hvac_mode
-                            target: !input thermostat
-                            data:
-                              hvac_mode: "off"
-
+              # 3b) Fenster war offen, jetzt zu -> Rückkehr zu Komfort/Setback nach Delay
               - conditions:
                   - condition: template
                     value_template: >
@@ -255,17 +287,35 @@ actions:
                   - condition: template
                     value_template: >
                       {{ window_sensor == [] or is_state(window_sensor, 'off') }}
-                  - condition: template
-                    value_template: >
-                      {{ schedule_entity == [] or is_state(schedule_entity, 'on') }}
-                  - action: climate.set_hvac_mode
-                    target: !input thermostat
-                    data:
-                      hvac_mode: heat
-                  - action: climate.set_temperature
-                    target: !input thermostat
-                    data:
-                      temperature: "{{ last_comfort_temp }}"
+                  - choose:
+                      # Nach Fenster zu + Heizzeit -> Komfort-Temp (oder gespeichertes Setpoint)
+                      - conditions:
+                          - condition: template
+                            value_template: >
+                              {{ schedule_entity == [] or is_state(schedule_entity, 'on') }}
+                        sequence:
+                          - action: climate.set_hvac_mode
+                            target: !input thermostat
+                            data:
+                              hvac_mode: heat
+                          - action: climate.set_temperature
+                            target: !input thermostat
+                            data:
+                              temperature: "{{ last_comfort_temp }}"
+                      # Nach Fenster zu + Absenkbetrieb -> Setback-Temp
+                      - conditions:
+                          - condition: template
+                            value_template: >
+                              {{ schedule_entity != [] and is_state(schedule_entity, 'off') }}
+                        sequence:
+                          - action: climate.set_hvac_mode
+                            target: !input thermostat
+                            data:
+                              hvac_mode: heat
+                          - action: climate.set_temperature
+                            target: !input thermostat
+                            data:
+                              temperature: !input setback_temp
             default: []
     default: []
 
