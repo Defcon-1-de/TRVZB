@@ -180,12 +180,11 @@ action:
         {% endif %}
 
   - choose:
-      # 1) Fenster geöffnet -> Heizung aus
+      # 1) Fenster geöffnet -> Heizung aus – TESTMARKER-SEQUENCE-OPEN-WINDOW-XYZ-2025
       - conditions:
           - condition: trigger
             id: window_open
         sequence:
-          # TESTMARKER-SEQUENCE-OPEN-WINDOW-XYZ-2025
           - service: climate.set_hvac_mode
             target:
               entity_id: !input thermostat_entity
@@ -211,13 +210,12 @@ action:
                     value_template: "{{ override_active }}"
                 sequence: []
 
-              # 2b) Fenster offen oder Außentemp nicht OK -> Heizung aus
+              # 2b) Fenster offen oder Außentemp nicht OK -> Heizung aus – TESTMARKER-FENSTER-OFFEN-123
               - conditions:
                   - condition: template
                     value_template: >
                       {{ is_state(window_sensor, 'on') or not outside_ok }}
                 sequence:
-                  # TESTMARKER-SEQUENCE-FENSTER-OFFEN-123
                   - service: climate.set_hvac_mode
                     target:
                       entity_id: !input thermostat_entity
@@ -267,5 +265,4 @@ action:
                       entity_id: !input thermostat_entity
                     
                       temperature: "{{ eco_temperature }}"
-
 mode: restart
