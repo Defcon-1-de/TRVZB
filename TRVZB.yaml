@@ -6,7 +6,7 @@ blueprint:
     Override und Fensterabschaltung bis 0 °C.
     Autor: Patrick Kohnke – www.defcon-1.de
   domain: automation
-  author: Patrick Kohnke
+  author: Patrick Kohnke / Defcon-1.de
   source_url: https://raw.githubusercontent.com/Defcon-1-de/TRVZB/refs/heads/main/TRVZB.yaml
 
   input:
