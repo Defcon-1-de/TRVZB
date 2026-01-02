@@ -1,5 +1,5 @@
 blueprint:
-  name: TRVZB Kombi: HA-Regelung + TRV-AUTO (Mo–Fr / Sa–So, echte Schedule-Auswertung)
+  name: "TRVZB Kombi – HA-Regelung + TRV-AUTO (Mo–Fr / Sa–So, echte Schedule-Auswertung)"
   description: >
     Kombinierter Blueprint für Sonoff TRVZB:
     - Delta-Hysterese, Fensterüberwachung, Override
