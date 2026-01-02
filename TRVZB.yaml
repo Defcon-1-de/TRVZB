@@ -243,66 +243,66 @@ actions:
 
               monday_str: >
                 {% set ev = schedules[schedule_mo_fr]['monday'] if schedule_mo_fr != [] else [] %}
-                {% set points = [('00:00', setback)] %}
+                {% set out = ['00:00/' ~ setback] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.from[0:5] ~ '/' ~ comfort) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.to[0:5] ~ '/' ~ setback) %}{% endif %}
                 {% endfor %}
-                {{ points | map('join', '/') | join(' ') }}
+                {{ out | join(' ') }}
 
               tuesday_str: >
                 {% set ev = schedules[schedule_mo_fr]['tuesday'] if schedule_mo_fr != [] else [] %}
-                {% set points = [('00:00', setback)] %}
+                {% set out = ['00:00/' ~ setback] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.from[0:5] ~ '/' ~ comfort) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.to[0:5] ~ '/' ~ setback) %}{% endif %}
                 {% endfor %}
-                {{ points | map('join', '/') | join(' ') }}
+                {{ out | join(' ') }}
 
               wednesday_str: >
                 {% set ev = schedules[schedule_mo_fr]['wednesday'] if schedule_mo_fr != [] else [] %}
-                {% set points = [('00:00', setback)] %}
+                {% set out = ['00:00/' ~ setback] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.from[0:5] ~ '/' ~ comfort) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.to[0:5] ~ '/' ~ setback) %}{% endif %}
                 {% endfor %}
-                {{ points | map('join', '/') | join(' ') }}
+                {{ out | join(' ') }}
 
               thursday_str: >
                 {% set ev = schedules[schedule_mo_fr]['thursday'] if schedule_mo_fr != [] else [] %}
-                {% set points = [('00:00', setback)] %}
+                {% set out = ['00:00/' ~ setback] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.from[0:5] ~ '/' ~ comfort) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.to[0:5] ~ '/' ~ setback) %}{% endif %}
                 {% endfor %}
-                {{ points | map('join', '/') | join(' ') }}
+                {{ out | join(' ') }}
 
               friday_str: >
                 {% set ev = schedules[schedule_mo_fr]['friday'] if schedule_mo_fr != [] else [] %}
-                {% set points = [('00:00', setback)] %}
+                {% set out = ['00:00/' ~ setback] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.from[0:5] ~ '/' ~ comfort) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.to[0:5] ~ '/' ~ setback) %}{% endif %}
                 {% endfor %}
-                {{ points | map('join', '/') | join(' ') }}
+                {{ out | join(' ') }}
 
               saturday_str: >
                 {% set ev = schedules[schedule_sa_so]['saturday'] if schedule_sa_so != [] else [] %}
-                {% set points = [('00:00', setback)] %}
+                {% set out = ['00:00/' ~ setback] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.from[0:5] ~ '/' ~ comfort) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.to[0:5] ~ '/' ~ setback) %}{% endif %}
                 {% endfor %}
-                {{ points | map('join', '/') | join(' ') }}
+                {{ out | join(' ') }}
 
               sunday_str: >
                 {% set ev = schedules[schedule_sa_so]['sunday'] if schedule_sa_so != [] else [] %}
-                {% set points = [('00:00', setback)] %}
+                {% set out = ['00:00/' ~ setback] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
-                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.from[0:5] ~ '/' ~ comfort) %}{% endif %}
+                  {% if out|length < max_entries %}{% set _ = out.append(e.to[0:5] ~ '/' ~ setback) %}{% endif %}
                 {% endfor %}
-                {{ points | map('join', '/') | join(' ') }}
+                {{ out | join(' ') }}
 
           - action: mqtt.publish
             data:
