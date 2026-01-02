@@ -221,7 +221,7 @@ conditions: []
 
 actions:
   - choose:
-      # 1) TRV-Wochenplan aus Schedule-Helpern generieren & senden
+      # 1) TRV-Wochenplan aus Schedule-Helpern generieren & senden (AUTO)
       - conditions:
           - condition: template
             value_template: "{{ use_trv_auto }}"
@@ -384,12 +384,13 @@ actions:
                       {{ window_sensor == [] or is_state(window_sensor, 'off') }}
                 sequence:
                   - choose:
-                      # 4a-1) Reiner HA-Betrieb
+                      # 4a-1) Reiner HA-Betrieb (kein AUTO)
                       - conditions:
                           - condition: template
                             value_template: "{{ not use_trv_auto }}"
                         sequence:
                           - choose:
+                              # Komfortzeit → Komfort-Temp, Hysterese
                               - conditions:
                                   - condition: template
                                     value_template: >
@@ -424,17 +425,22 @@ actions:
                                               entity_id: !input thermostat
                                             data:
                                               temperature: !input comfort_temp
-                                  - choose:
-                                      - conditions:
-                                          - condition: template
-                                            value_template: "{{ current_temp >= comfort_temp }}"
-                                        sequence:
-                                          - action: climate.set_hvac_mode
-                                            target:
-                                              entity_id: !input thermostat
-                                            data:
-                                              hvac_mode: 'off'
-                                    default: []
+                                  - conditions:
+                                      - condition: template
+                                        value_template: "{{ current_temp >= comfort_temp }}"
+                                    sequence:
+                                      # Statt off → Absenk-Temp in heat
+                                      - action: climate.set_hvac_mode
+                                        target:
+                                          entity_id: !input thermostat
+                                        data:
+                                          hvac_mode: heat
+                                      - action: climate.set_temperature
+                                        target:
+                                          entity_id: !input thermostat
+                                        data:
+                                          temperature: !input setback_temp
+                              # Absenkzeit → Absenk-Temp
                               - conditions:
                                   - condition: template
                                     value_template: >
@@ -475,6 +481,7 @@ actions:
                     value_template: >
                       {{ window_sensor == [] or is_state(window_sensor, 'off') }}
                   - choose:
+                      # HA-Betrieb: zurück auf Komfort/Absenk
                       - conditions:
                           - condition: template
                             value_template: "{{ not use_trv_auto }}"
@@ -514,6 +521,7 @@ actions:
                                     data:
                                       temperature: !input setback_temp
                             default: []
+                      # AUTO-Betrieb: nur zurück auf auto
                       - conditions:
                           - condition: template
                             value_template: "{{ use_trv_auto }}"
