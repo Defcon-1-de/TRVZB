@@ -1,14 +1,14 @@
 blueprint:
-  name: "TRVZB Kombi – HA-Regelung + TRV-AUTO (Mo–Fr / Sa–So, echte Schedule-Auswertung)"
+  name: "TRVZB Kombi – HA-Regelung + TRV-AUTO (Mo–Fr/Sa–So)"
   description: >
-    Kombinierter Blueprint für Sonoff TRVZB:
+    Kombinierter Blueprint für Sonoff TRVZB (Zigbee2MQTT):
     - Delta-Hysterese, Fensterüberwachung, Override
     - Drag&Drop-Heizzeiten über zwei Schedule-Helper (Mo–Fr / Sa–So)
-    - Echte Auswertung der Schedule-Blöcke per schedule.get_schedule
-      und Programmierung des internen TRVZB-Wochenplans (AUTO)
+    - Programmierung des internen TRVZB-Wochenplans (weekly_schedule_*)
+      via MQTT und Nutzung des AUTO-Modus.
   domain: automation
   author: Patrick Kohnke
-  source_url: https://www.defcon-1.de/ha_blueprints/trvzb_kombi_auto_true.yaml
+  source_url: https://www.defcon-1.de/ha_blueprints/trvzb_kombi_auto_clean.yaml
 
   input:
     thermostat:
@@ -31,7 +31,9 @@ blueprint:
       default: []
       selector:
         entity:
-          domain: [binary_sensor, group]
+          domain:
+            - binary_sensor
+            - group
 
     override_entity:
       name: Override (optional)
@@ -39,7 +41,9 @@ blueprint:
       default: []
       selector:
         entity:
-          domain: [input_boolean, switch]
+          domain:
+            - input_boolean
+            - switch
 
     last_setpoint_store:
       name: Speicher für letztes Komfort-Setpoint (optional)
@@ -235,102 +239,68 @@ actions:
           - variables:
               comfort: "{{ comfort_temp | float }}"
               setback: "{{ setback_temp | float }}"
+              max_entries: 6
 
               monday_str: >
                 {% set ev = schedules[schedule_mo_fr]['monday'] if schedule_mo_fr != [] else [] %}
-                {% set max_entries = 6 %}
                 {% set points = [('00:00', setback)] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.from[0:5], comfort)) %}
-                  {% endif %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.to[0:5], setback)) %}
-                  {% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
                 {% endfor %}
                 {{ points | map('join', '/') | join(' ') }}
 
               tuesday_str: >
                 {% set ev = schedules[schedule_mo_fr]['tuesday'] if schedule_mo_fr != [] else [] %}
-                {% set max_entries = 6 %}
                 {% set points = [('00:00', setback)] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.from[0:5], comfort)) %}
-                  {% endif %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.to[0:5], setback)) %}
-                  {% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
                 {% endfor %}
                 {{ points | map('join', '/') | join(' ') }}
 
               wednesday_str: >
                 {% set ev = schedules[schedule_mo_fr]['wednesday'] if schedule_mo_fr != [] else [] %}
-                {% set max_entries = 6 %}
                 {% set points = [('00:00', setback)] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.from[0:5], comfort)) %}
-                  {% endif %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.to[0:5], setback)) %}
-                  {% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
                 {% endfor %}
                 {{ points | map('join', '/') | join(' ') }}
 
               thursday_str: >
                 {% set ev = schedules[schedule_mo_fr]['thursday'] if schedule_mo_fr != [] else [] %}
-                {% set max_entries = 6 %}
                 {% set points = [('00:00', setback)] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.from[0:5], comfort)) %}
-                  {% endif %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.to[0:5], setback)) %}
-                  {% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
                 {% endfor %}
                 {{ points | map('join', '/') | join(' ') }}
 
               friday_str: >
                 {% set ev = schedules[schedule_mo_fr]['friday'] if schedule_mo_fr != [] else [] %}
-                {% set max_entries = 6 %}
                 {% set points = [('00:00', setback)] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.from[0:5], comfort)) %}
-                  {% endif %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.to[0:5], setback)) %}
-                  {% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
                 {% endfor %}
                 {{ points | map('join', '/') | join(' ') }}
 
               saturday_str: >
                 {% set ev = schedules[schedule_sa_so]['saturday'] if schedule_sa_so != [] else [] %}
-                {% set max_entries = 6 %}
                 {% set points = [('00:00', setback)] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.from[0:5], comfort)) %}
-                  {% endif %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.to[0:5], setback)) %}
-                  {% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
                 {% endfor %}
                 {{ points | map('join', '/') | join(' ') }}
 
               sunday_str: >
                 {% set ev = schedules[schedule_sa_so]['sunday'] if schedule_sa_so != [] else [] %}
-                {% set max_entries = 6 %}
                 {% set points = [('00:00', setback)] %}
                 {% for e in ev %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.from[0:5], comfort)) %}
-                  {% endif %}
-                  {% if points|length < max_entries %}
-                    {% set _ = points.append((e.to[0:5], setback)) %}
-                  {% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.from[0:5], comfort)) %}{% endif %}
+                  {% if points|length < max_entries %}{% set _ = points.append((e.to[0:5], setback)) %}{% endif %}
                 {% endfor %}
                 {{ points | map('join', '/') | join(' ') }}
 
@@ -400,14 +370,158 @@ actions:
                     data:
                       temperature: !input window_off_temp
 
-      # 4) Normalbetrieb (rest deiner Logik)
+      # 4) Normalbetrieb
       - conditions:
           - condition: template
             value_template: >
               {{ override_entity == [] or is_state(override_entity, 'off') }}
         sequence:
-          # … hier bleibt dein schon vorhandener Block 4 unverändert …
-          # (Fenster zu / auf, Delta-Hysterese, Absenkregelung, AUTO vs. HA-Betrieb)
-          # Den kannst du 1:1 aus deiner Version übernehmen.
-          - choose: []
+          - choose:
+              # 4a) Fenster zu
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ window_sensor == [] or is_state(window_sensor, 'off') }}
+                sequence:
+                  - choose:
+                      # 4a-1) Reiner HA-Betrieb
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ not use_trv_auto }}"
+                        sequence:
+                          - choose:
+                              - conditions:
+                                  - condition: template
+                                    value_template: >
+                                      {{ is_state(schedule_mo_fr, 'on') or
+                                         is_state(schedule_sa_so, 'on') or
+                                         (schedule_mo_fr == [] and schedule_sa_so == []) }}
+                                sequence:
+                                  - choose:
+                                      - conditions:
+                                          - condition: template
+                                            value_template: >
+                                              {{ (comfort_temp - current_temp) >= delta_hysteresis }}
+                                        sequence:
+                                          - choose:
+                                              - conditions:
+                                                  - condition: template
+                                                    value_template: "{{ last_setpoint_store != [] }}"
+                                                sequence:
+                                                  - action: input_number.set_value
+                                                    target:
+                                                      entity_id: !input last_setpoint_store
+                                                    data:
+                                                      value: "{{ comfort_temp }}"
+                                            default: []
+                                          - action: climate.set_hvac_mode
+                                            target:
+                                              entity_id: !input thermostat
+                                            data:
+                                              hvac_mode: heat
+                                          - action: climate.set_temperature
+                                            target:
+                                              entity_id: !input thermostat
+                                            data:
+                                              temperature: !input comfort_temp
+                                  - choose:
+                                      - conditions:
+                                          - condition: template
+                                            value_template: "{{ current_temp >= comfort_temp }}"
+                                        sequence:
+                                          - action: climate.set_hvac_mode
+                                            target:
+                                              entity_id: !input thermostat
+                                            data:
+                                              hvac_mode: 'off'
+                                    default: []
+                              - conditions:
+                                  - condition: template
+                                    value_template: >
+                                      {{ is_state(schedule_mo_fr, 'off') or
+                                         is_state(schedule_sa_so, 'off') }}
+                                sequence:
+                                  - action: climate.set_hvac_mode
+                                    target:
+                                      entity_id: !input thermostat
+                                    data:
+                                      hvac_mode: heat
+                                  - action: climate.set_temperature
+                                    target:
+                                      entity_id: !input thermostat
+                                    data:
+                                      temperature: !input setback_temp
+                            default: []
+
+                      # 4a-2) TRV-AUTO aktiv – HA greift nur minimal ein
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ use_trv_auto }}"
+                        sequence:
+                          - action: climate.set_hvac_mode
+                            target:
+                              entity_id: !input thermostat
+                            data:
+                              hvac_mode: auto
+
+              # 4b) Fenster war offen -> schließt
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ window_sensor != [] and is_state(window_sensor, 'off') }}
+                sequence:
+                  - delay: !input window_close_delay
+                  - condition: template
+                    value_template: >
+                      {{ window_sensor == [] or is_state(window_sensor, 'off') }}
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ not use_trv_auto }}"
+                        sequence:
+                          - choose:
+                              - conditions:
+                                  - condition: template
+                                    value_template: >
+                                      {{ is_state(schedule_mo_fr, 'on') or
+                                         is_state(schedule_sa_so, 'on') or
+                                         (schedule_mo_fr == [] and schedule_sa_so == []) }}
+                                sequence:
+                                  - action: climate.set_hvac_mode
+                                    target:
+                                      entity_id: !input thermostat
+                                    data:
+                                      hvac_mode: heat
+                                  - action: climate.set_temperature
+                                    target:
+                                      entity_id: !input thermostat
+                                    data:
+                                      temperature: "{{ last_comfort_temp }}"
+                              - conditions:
+                                  - condition: template
+                                    value_template: >
+                                      {{ is_state(schedule_mo_fr, 'off') or
+                                         is_state(schedule_sa_so, 'off') }}
+                                sequence:
+                                  - action: climate.set_hvac_mode
+                                    target:
+                                      entity_id: !input thermostat
+                                    data:
+                                      hvac_mode: heat
+                                  - action: climate.set_temperature
+                                    target:
+                                      entity_id: !input thermostat
+                                    data:
+                                      temperature: !input setback_temp
+                            default: []
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ use_trv_auto }}"
+                        sequence:
+                          - action: climate.set_hvac_mode
+                            target:
+                              entity_id: !input thermostat
+                            data:
+                              hvac_mode: auto
+            default: []
     default: []
