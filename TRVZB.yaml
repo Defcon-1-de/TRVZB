@@ -1,19 +1,21 @@
 blueprint:
-  name: TRVZB Heizungssteuerung mit Delta-Hysterese, Fensterüberwachung & manuellem Override
+  name: TRVZB Kombi: HA-Regelung + TRV-AUTO (Mo–Fr / Sa–So, echte Schedule-Auswertung)
   description: >
-    Heizkörperregelung für das Sonoff TRVZB mit Delta-Hysterese,
-    Heizzeiten, Absenkbetrieb, Fensterkontakt und optionalem Override.
-    Autor: Patrick Kohnke – www.defcon-1.de
+    Kombinierter Blueprint für Sonoff TRVZB:
+    - Delta-Hysterese, Fensterüberwachung, Override
+    - Drag&Drop-Heizzeiten über zwei Schedule-Helper (Mo–Fr / Sa–So)
+    - Echte Auswertung der Schedule-Blöcke per schedule.get_schedule
+      und Programmierung des internen TRVZB-Wochenplans (AUTO)
   domain: automation
   author: Patrick Kohnke
-  source_url: https://raw.githubusercontent.com/Defcon-1-de/TRVZB/refs/heads/main/TRVZB.yaml
+  source_url: https://www.defcon-1.de/ha_blueprints/trvzb_kombi_auto_true.yaml
 
   input:
     thermostat:
-      name: Thermostat
+      name: Thermostat (TRVZB Climate-Entity)
       selector:
         entity:
-          domain: climate
+          domain: [climate]
 
     temperature_sensor:
       name: Externer Temperatursensor (optional)
@@ -21,7 +23,7 @@ blueprint:
       default: []
       selector:
         entity:
-          domain: sensor
+          domain: [sensor]
 
     window_sensor:
       name: Fenstersensor (optional)
@@ -29,27 +31,15 @@ blueprint:
       default: []
       selector:
         entity:
-          domain:
-            - binary_sensor
-            - group
-
-    schedule_entity:
-      name: Heiz-Zeitplan (optional)
-      description: schedule-Helper für Komfort-Zeiten.
-      default: []
-      selector:
-        entity:
-          domain: schedule
+          domain: [binary_sensor, group]
 
     override_entity:
       name: Override (optional)
-      description: Schalter für manuelle Regelung.
+      description: Schalter für manuelle Regelung (Blueprint-Logik pausiert).
       default: []
       selector:
         entity:
-          domain:
-            - input_boolean
-            - switch
+          domain: [input_boolean, switch]
 
     last_setpoint_store:
       name: Speicher für letztes Komfort-Setpoint (optional)
@@ -57,37 +47,37 @@ blueprint:
       default: []
       selector:
         entity:
-          domain: input_number
+          domain: [input_number]
 
     comfort_temp:
       name: Komfort-Temperatur (°C)
       default: 21.0
       selector:
         number:
-          min: 0
-          max: 30
+          min: 4.0
+          max: 30.0
           step: 0.5
-          unit_of_measurement: "°C"
+          unit_of_measurement: °C
 
     setback_temp:
       name: Absenktemperatur außerhalb Heizzeiten (°C)
       default: 17.0
       selector:
         number:
-          min: 0
-          max: 30
+          min: 4.0
+          max: 30.0
           step: 0.5
-          unit_of_measurement: "°C"
+          unit_of_measurement: °C
 
     window_off_temp:
       name: Temperatur bei Fenster offen (°C)
-      default: 0.0
+      default: 5.0
       selector:
         number:
-          min: 0
-          max: 10
+          min: 0.0
+          max: 15.0
           step: 0.5
-          unit_of_measurement: "°C"
+          unit_of_measurement: °C
 
     delta_hysteresis:
       name: Delta-Hysterese (°C)
@@ -96,21 +86,65 @@ blueprint:
       selector:
         number:
           min: 0.5
-          max: 10
+          max: 10.0
           step: 0.5
-          unit_of_measurement: "°C"
+          unit_of_measurement: °C
 
     window_open_delay:
       name: Verzögerung Fenster auf
-      default: "00:0:15"
+      default: 00:00:15
       selector:
         duration: {}
 
     window_close_delay:
       name: Verzögerung Fenster zu
-      default: "00:01:15"
+      default: 00:01:15
       selector:
         duration: {}
+
+    # Drag&Drop-Zeitpläne
+    schedule_mo_fr:
+      name: Heiz-Zeitplan Mo–Fr (Schedule-Helper)
+      description: Drag&Drop-Zeitplan für Komfortzeiten Montag bis Freitag.
+      default: []
+      selector:
+        entity:
+          domain: [schedule]
+
+    schedule_sa_so:
+      name: Heiz-Zeitplan Sa–So (Schedule-Helper)
+      description: Drag&Drop-Zeitplan für Komfortzeiten Samstag & Sonntag.
+      default: []
+      selector:
+        entity:
+          domain: [schedule]
+
+    use_trv_auto:
+      name: TRV internen AUTO-Plan nutzen
+      description: >
+        Wenn aktiviert, wird der interne Wochenplan des TRVZB aus den Schedule-Helpern
+        programmiert (per schedule.get_schedule) und der TRV auf AUTO gesetzt.
+        Fenster-/Override-Logik greift temporär ein und kehrt zu AUTO zurück.
+      default: false
+      selector:
+        boolean: {}
+
+    mqtt_topic_trv:
+      name: MQTT-Topic des TRVZB (zigbee2mqtt)
+      description: Basis-Topic für das TRVZB, z.B. "zigbee2mqtt/Wohnzimmer".
+      default: zigbee2mqtt/Wohnzimmer
+      selector:
+        text: {}
+
+    reprogram_button:
+      name: Manuelle Neu-Programmierung (optional)
+      description: input_button, um den TRV-Zeitplan manuell neu zu schreiben.
+      default: []
+      selector:
+        entity:
+          domain: [input_button]
+
+mode: single
 
 triggers:
   - trigger: state
@@ -126,40 +160,54 @@ triggers:
     id: window
 
   - trigger: state
-    entity_id: !input schedule_entity
-    id: schedule
-
-  - trigger: state
     entity_id: !input override_entity
     id: override
 
   - trigger: time_pattern
-    minutes: "/10"
+    minutes: /10
     id: periodic
+
+  - trigger: state
+    entity_id: !input schedule_mo_fr
+    id: schedule_mo_fr
+
+  - trigger: state
+    entity_id: !input schedule_sa_so
+    id: schedule_sa_so
+
+  - trigger: state
+    entity_id: !input reprogram_button
+    id: reprogram_button
+
+  - trigger: homeassistant
+    event: start
+    id: ha_start
 
 variables:
   thermostat: !input thermostat
   temperature_sensor: !input temperature_sensor
   window_sensor: !input window_sensor
-  schedule_entity: !input schedule_entity
   override_entity: !input override_entity
   last_setpoint_store: !input last_setpoint_store
-
   comfort_temp: !input comfort_temp
   setback_temp: !input setback_temp
   window_off_temp: !input window_off_temp
   delta_hysteresis: !input delta_hysteresis
   window_open_delay: !input window_open_delay
   window_close_delay: !input window_close_delay
+  schedule_mo_fr: !input schedule_mo_fr
+  schedule_sa_so: !input schedule_sa_so
+  use_trv_auto: !input use_trv_auto
+  mqtt_topic_trv: !input mqtt_topic_trv
 
-  current_temp: >-
+  current_temp: >
     {% if temperature_sensor != [] %}
       {{ states(temperature_sensor) | float(0) }}
     {% else %}
       {{ state_attr(thermostat, 'current_temperature') | float(0) }}
     {% endif %}
 
-  last_comfort_temp: >-
+  last_comfort_temp: >
     {% if last_setpoint_store != [] %}
       {{ states(last_setpoint_store) | float(comfort_temp) }}
     {% else %}
@@ -170,7 +218,145 @@ conditions: []
 
 actions:
   - choose:
-      # Fenster offen
+      # =========================================================
+      # 1) TRV-Wochenplan aus Schedule-Helpern generieren & senden
+      # =========================================================
+      - conditions:
+          - condition: template
+            value_template: "{{ use_trv_auto }}"
+          - condition: template
+            value_template: >
+              {{ trigger.id in ['schedule_mo_fr', 'schedule_sa_so', 'reprogram_button', 'ha_start'] }}
+        sequence:
+          - action: schedule.get_schedule
+            target:
+              entity_id:
+                - !input schedule_mo_fr
+                - !input schedule_sa_so
+            response_variable: schedules
+
+          - variables:
+              # Hilfsfunktion in Jinja: Wandelt eine Liste von Events in eine
+              # Liste von (Zeit, Temperatur)-Paaren für den TRV.
+              # Wir nehmen:
+              # - 00:00 mit Absenktemperatur
+              # - Start jedes ON-Blocks mit Komfort
+              # - Ende jedes ON-Blocks mit Absenk
+              # - max. 6 Einträge pro Tag
+              #
+              # Helper: erzeugt eine Tagesliste aus "from/to" Events
+              weekday_map:
+                monday: monday
+                tuesday: tuesday
+                wednesday: wednesday
+                thursday: thursday
+                friday: friday
+                saturday: saturday
+                sunday: sunday
+
+              comfort: "{{ comfort_temp | float }}"
+              setback: "{{ setback_temp | float }}"
+
+              # Funktion: baue Tagesliste aus rohen Blöcken (from/to)
+              build_day_list: >
+                {% macro build(events, comfort, setback) %}
+                {%- set max_entries = 6 -%}
+                {%- set points = [] -%}
+                {# Immer bei 00:00 mit Absenk beginnen #}
+                {%- set _ = points.append(('00:00', setback)) -%}
+                {%- for ev in events %}
+                  {# Start Komfort #}
+                  {%- if points|length < max_entries %}
+                    {%- set _ = points.append((ev.from[0:5], comfort)) -%}
+                  {%- endif %}
+                  {# Ende Komfort -> zurück auf Absenk #}
+                  {%- if points|length < max_entries %}
+                    {%- set _ = points.append((ev.to[0:5], setback)) -%}
+                  {%- endif %}
+                {%- endfor %}
+                {{ points }}
+                {% endmacro %}
+
+              # Mo–Fr nutzen schedule_mo_fr, Sa/So schedule_sa_so
+              mo_list: >
+                {% set ev = schedules[schedule_mo_fr]['monday'] if schedule_mo_fr != [] else [] %}
+                {{ build(ev, comfort, setback) }}
+
+              tu_list: >
+                {% set ev = schedules[schedule_mo_fr]['tuesday'] if schedule_mo_fr != [] else [] %}
+                {{ build(ev, comfort, setback) }}
+
+              we_list: >
+                {% set ev = schedules[schedule_mo_fr]['wednesday'] if schedule_mo_fr != [] else [] %}
+                {{ build(ev, comfort, setback) }}
+
+              th_list: >
+                {% set ev = schedules[schedule_mo_fr]['thursday'] if schedule_mo_fr != [] else [] %}
+                {{ build(ev, comfort, setback) }}
+
+              fr_list: >
+                {% set ev = schedules[schedule_mo_fr]['friday'] if schedule_mo_fr != [] else [] %}
+                {{ build(ev, comfort, setback) }}
+
+              sa_list: >
+                {% set ev = schedules[schedule_sa_so]['saturday'] if schedule_sa_so != [] else [] %}
+                {{ build(ev, comfort, setback) }}
+
+              su_list: >
+                {% set ev = schedules[schedule_sa_so]['sunday'] if schedule_sa_so != [] else [] %}
+                {{ build(ev, comfort, setback) }}
+
+              # Hilfsfunktion: Liste -> TRV-String "HH:MM/TEMP HH:MM/TEMP ..."
+              list_to_string: >
+                {% macro l2s(points) %}
+                {%- set out = [] -%}
+                {%- for t, temp in points %}
+                  {%- set _ = out.append(t ~ '/' ~ (temp | round(1))) -%}
+                {%- endfor %}
+                {{ out | join(' ') }}
+                {% endmacro %}
+
+              monday_str: "{{ l2s(mo_list) }}"
+              tuesday_str: "{{ l2s(tu_list) }}"
+              wednesday_str: "{{ l2s(we_list) }}"
+              thursday_str: "{{ l2s(th_list) }}"
+              friday_str: "{{ l2s(fr_list) }}"
+              saturday_str: "{{ l2s(sa_list) }}"
+              sunday_str: "{{ l2s(su_list) }}"
+
+          - action: mqtt.publish
+            data:
+              topic: "{{ mqtt_topic_trv }}/set"
+              payload: >
+                {
+                  "weekly_schedule_monday": "{{ monday_str }}",
+                  "weekly_schedule_tuesday": "{{ tuesday_str }}",
+                  "weekly_schedule_wednesday": "{{ wednesday_str }}",
+                  "weekly_schedule_thursday": "{{ thursday_str }}",
+                  "weekly_schedule_friday": "{{ friday_str }}",
+                  "weekly_schedule_saturday": "{{ saturday_str }}",
+                  "weekly_schedule_sunday": "{{ sunday_str }}"
+                }
+
+          - delay: "00:00:02"
+
+          - action: mqtt.publish
+            data:
+              topic: "{{ mqtt_topic_trv }}/set"
+              payload: '{ "system_mode": "auto" }'
+
+      # =========================
+      # 2) Override: Logik pausiert
+      # =========================
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ override_entity != [] and is_state(override_entity, 'on') }}
+        sequence: []
+
+      # =========================
+      # 3) Fenster offen
+      # =========================
       - conditions:
           - condition: template
             value_template: >
@@ -180,62 +366,107 @@ actions:
           - condition: template
             value_template: >
               {{ window_sensor != [] and is_state(window_sensor, 'on') }}
-          - action: climate.set_hvac_mode
-            target:
-              entity_id: !input thermostat
-            data:
-              hvac_mode: heat
-          - action: climate.set_temperature
-            target:
-              entity_id: !input thermostat
-            data:
-              temperature: !input window_off_temp
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ use_trv_auto }}"
+                sequence:
+                  - action: climate.set_hvac_mode
+                    target:
+                      entity_id: !input thermostat
+                    data:
+                      hvac_mode: heat
+                  - action: climate.set_temperature
+                    target:
+                      entity_id: !input thermostat
+                    data:
+                      temperature: !input window_off_temp
+              - conditions: []
+                sequence:
+                  - action: climate.set_hvac_mode
+                    target:
+                      entity_id: !input thermostat
+                    data:
+                      hvac_mode: heat
+                  - action: climate.set_temperature
+                    target:
+                      entity_id: !input thermostat
+                    data:
+                      temperature: !input window_off_temp
 
-      # Override aktiv
-      - conditions:
-          - condition: template
-            value_template: >
-              {{ override_entity != [] and is_state(override_entity, 'on') }}
-        sequence: []
-
-      # Normalbetrieb
+      # =========================
+      # 4) Normalbetrieb
+      # =========================
       - conditions:
           - condition: template
             value_template: >
               {{ override_entity == [] or is_state(override_entity, 'off') }}
         sequence:
           - choose:
-              # Fenster zu
+              # 4a) Fenster zu
               - conditions:
                   - condition: template
                     value_template: >
                       {{ window_sensor == [] or is_state(window_sensor, 'off') }}
                 sequence:
                   - choose:
-                      # Heizzeit (Komfort)
+                      # 4a-1) Reiner HA-Betrieb (use_trv_auto == false)
                       - conditions:
                           - condition: template
-                            value_template: >
-                              {{ schedule_entity == [] or is_state(schedule_entity, 'on') }}
+                            value_template: "{{ not use_trv_auto }}"
                         sequence:
-                          # Heizen, wenn Delta erreicht
                           - choose:
                               - conditions:
                                   - condition: template
                                     value_template: >
-                                      {{ (comfort_temp - current_temp) >= delta_hysteresis }}
+                                      {{ is_state(schedule_mo_fr, 'on') or
+                                         is_state(schedule_sa_so, 'on') or
+                                         (schedule_mo_fr == [] and schedule_sa_so == []) }}
                                 sequence:
                                   - choose:
                                       - conditions:
                                           - condition: template
-                                            value_template: "{{ last_setpoint_store != [] }}"
+                                            value_template: >
+                                              {{ (comfort_temp - current_temp) >= delta_hysteresis }}
                                         sequence:
-                                          - action: input_number.set_value
+                                          - choose:
+                                              - conditions:
+                                                  - condition: template
+                                                    value_template: "{{ last_setpoint_store != [] }}"
+                                                sequence:
+                                                  - action: input_number.set_value
+                                                    target:
+                                                      entity_id: !input last_setpoint_store
+                                                    data:
+                                                      value: "{{ comfort_temp }}"
+                                            default: []
+                                          - action: climate.set_hvac_mode
                                             target:
-                                              entity_id: !input last_setpoint_store
+                                              entity_id: !input thermostat
                                             data:
-                                              value: "{{ comfort_temp }}"
+                                              hvac_mode: heat
+                                          - action: climate.set_temperature
+                                            target:
+                                              entity_id: !input thermostat
+                                            data:
+                                              temperature: !input comfort_temp
+                                  - choose:
+                                      - conditions:
+                                          - condition: template
+                                            value_template: "{{ current_temp >= comfort_temp }}"
+                                        sequence:
+                                          - action: climate.set_hvac_mode
+                                            target:
+                                              entity_id: !input thermostat
+                                            data:
+                                              hvac_mode: 'off'
                                     default: []
+                              - conditions:
+                                  - condition: template
+                                    value_template: >
+                                      {{ is_state(schedule_mo_fr, 'off') or
+                                         is_state(schedule_sa_so, 'off') }}
+                                sequence:
                                   - action: climate.set_hvac_mode
                                     target:
                                       entity_id: !input thermostat
@@ -245,41 +476,21 @@ actions:
                                     target:
                                       entity_id: !input thermostat
                                     data:
-                                      temperature: !input comfort_temp
-
-                          # Aus, wenn Komfort erreicht
-                          - choose:
-                              - conditions:
-                                  - condition: template
-                                    value_template: >
-                                      {{ current_temp >= comfort_temp }}
-                                sequence:
-                                  - action: climate.set_hvac_mode
-                                    target:
-                                      entity_id: !input thermostat
-                                    data:
-                                      hvac_mode: "off"
+                                      temperature: !input setback_temp
                             default: []
 
-                      # Absenkbetrieb (Heizzeit aus)
+                      # 4a-2) TRV-AUTO aktiv (use_trv_auto == true)
                       - conditions:
                           - condition: template
-                            value_template: >
-                              {{ schedule_entity != [] and is_state(schedule_entity, 'off') }}
+                            value_template: "{{ use_trv_auto }}"
                         sequence:
                           - action: climate.set_hvac_mode
                             target:
                               entity_id: !input thermostat
                             data:
-                              hvac_mode: heat
-                          - action: climate.set_temperature
-                            target:
-                              entity_id: !input thermostat
-                            data:
-                              temperature: !input setback_temp
-                    default: []
+                              hvac_mode: auto
 
-              # Fenster gerade wieder zu
+              # 4b) Fenster war offen -> schließt
               - conditions:
                   - condition: template
                     value_template: >
@@ -290,39 +501,53 @@ actions:
                     value_template: >
                       {{ window_sensor == [] or is_state(window_sensor, 'off') }}
                   - choose:
-                      # nach Fenster zu + Heizzeit
                       - conditions:
                           - condition: template
-                            value_template: >
-                              {{ schedule_entity == [] or is_state(schedule_entity, 'on') }}
+                            value_template: "{{ not use_trv_auto }}"
+                        sequence:
+                          - choose:
+                              - conditions:
+                                  - condition: template
+                                    value_template: >
+                                      {{ is_state(schedule_mo_fr, 'on') or
+                                         is_state(schedule_sa_so, 'on') or
+                                         (schedule_mo_fr == [] and schedule_sa_so == []) }}
+                                sequence:
+                                  - action: climate.set_hvac_mode
+                                    target:
+                                      entity_id: !input thermostat
+                                    data:
+                                      hvac_mode: heat
+                                  - action: climate.set_temperature
+                                    target:
+                                      entity_id: !input thermostat
+                                    data:
+                                      temperature: "{{ last_comfort_temp }}"
+                              - conditions:
+                                  - condition: template
+                                    value_template: >
+                                      {{ is_state(schedule_mo_fr, 'off') or
+                                         is_state(schedule_sa_so, 'off') }}
+                                sequence:
+                                  - action: climate.set_hvac_mode
+                                    target:
+                                      entity_id: !input thermostat
+                                    data:
+                                      hvac_mode: heat
+                                  - action: climate.set_temperature
+                                    target:
+                                      entity_id: !input thermostat
+                                    data:
+                                      temperature: !input setback_temp
+                            default: []
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ use_trv_auto }}"
                         sequence:
                           - action: climate.set_hvac_mode
                             target:
                               entity_id: !input thermostat
                             data:
-                              hvac_mode: heat
-                          - action: climate.set_temperature
-                            target:
-                              entity_id: !input thermostat
-                            data:
-                              temperature: "{{ last_comfort_temp }}"
-                      # nach Fenster zu + Absenkbetrieb
-                      - conditions:
-                          - condition: template
-                            value_template: >
-                              {{ schedule_entity != [] and is_state(schedule_entity, 'off') }}
-                        sequence:
-                          - action: climate.set_hvac_mode
-                            target:
-                              entity_id: !input thermostat
-                            data:
-                              hvac_mode: heat
-                          - action: climate.set_temperature
-                            target:
-                              entity_id: !input thermostat
-                            data:
-                              temperature: !input setback_temp
+                              hvac_mode: auto
             default: []
     default: []
-
-mode: single
